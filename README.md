@@ -17,7 +17,7 @@ Anyone fighting the Chimera also needs Phantom Liberty.
 
 ## Installation
 
-1. Download `storyline-0.17.0-beta.1.zip` from [Releases](../../releases).
+1. Download `storyline-0.17.1.zip` from [Releases](../../releases).
 2. Unzip it into your server's `resources` folder, so you have `resources/gm_events/open77.lua` and `resources/gm_chimera/open77.lua`. Keep those folder names.
 3. Open `server.jsonc` and add both to `resources.load`, next to what you already have. They go after `open77_notifications`:
 

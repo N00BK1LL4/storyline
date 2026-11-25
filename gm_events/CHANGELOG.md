@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.17.0-beta.1
+## 0.17.1
+
+- Fixed: players could not join, because the game client refused the version number 0.17.0-beta.1.
+
+## 0.17.0-beta.1 (do not use)
 
 First public test.
 

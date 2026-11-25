@@ -30,7 +30,7 @@ on a test server and tell us what breaks.
 
 ## Version and changelog
 
-0.17.0-beta.1 (the suffix makes it a prerelease, so owners have to allow prereleases). Use CHANGELOG.md.
+0.17.1. Say "public test" in the title or summary: the mod's own version must be plain numbers, or players cannot join. Use CHANGELOG.md.
 
 ## License and attribution
 

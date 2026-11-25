@@ -8,6 +8,7 @@ args = [a for a in sys.argv[1:] if not a.startswith("--")]
 main = args[0] if args else os.path.join(here, "gm_events")
 version = re.search(r'^version "([^"]+)"', open(os.path.join(main, "open77.lua"), encoding="utf-8").read(), re.M)[1]
 config = re.search(r'version = "([^"]+)"', open(os.path.join(main, "server", "config.lua"), encoding="utf-8").read())[1]
+assert re.fullmatch(r"\d+\.\d+\.\d+", version), f"the game client refuses versions like {version}: use numbers only"
 assert version == config, f"open77.lua says {version}, config.lua says {config}"
 keep = {".lua", ".js", ".css", ".html", ".rml", ".rcss", ".md", ".jsonc"}
 def pack(out, roots):
@@ -30,6 +31,8 @@ def pack(out, roots):
     print(out, len(names), "files")
 tail = "-draft" if draft else ""
 chimera = os.path.join(here, "gm_chimera")
+cv = re.search(r'^version "([^"]+)"', open(os.path.join(chimera, "open77.lua"), encoding="utf-8").read(), re.M)[1]
+assert re.fullmatch(r"\d+\.\d+\.\d+", cv), f"gm_chimera version {cv}: use numbers only"
 pack(os.path.join(here, f"storyline-{version}{tail}.zip"), [("gm_events", main), ("gm_chimera", chimera)])
 pack(os.path.join(here, f"gm_events-{version}{tail}.zip"), [("gm_events", main)])
 pack(os.path.join(here, f"gm_chimera-{version}{tail}.zip"), [("gm_chimera", chimera)])

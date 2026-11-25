@@ -2,7 +2,7 @@
 -- Tuning tab instead (server/settings.lua), and staff make presets in the panel,
 -- so updating this mod never needs this file merged.
 GM = {
-    version = "0.17.0-beta.1",
+    version = "0.17.1",
     maxWave = 12,
 
     av = {

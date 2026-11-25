@@ -1,6 +1,6 @@
 # gm_events TODO
 
-Current version: 0.17.0-beta.1 (2026-11-25). Nothing published.
+Current version: 0.17.1 (2026-11-25). Nothing published.
 
 ## Next: your ideas
 
