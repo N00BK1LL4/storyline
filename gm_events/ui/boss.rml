@@ -5,7 +5,7 @@
     <link type="text/rcss" href="boss.rcss"/>
 </head>
 <body data-model="boss">
-<div id="root" data-class-on="active" data-class-low="low">
+<div id="root" data-class-on="active" data-class-low="low" data-class-slim="slim">
     <div id="panel">
         <div id="row">
             <span id="name">{{name}}</span>

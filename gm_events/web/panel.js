@@ -503,6 +503,8 @@
 
       box.appendChild(el("h2", "", "Build-up"));
       box.appendChild(field("Warning before the flight", textInput(d, "warning", 160)));
+      if (d.warningLead === undefined) d.warningLead = 6;
+      box.appendChild(field("Seconds of warning", numberInput(d, "warningLead", 0, 60, 1)));
       var camera = el("input");
       camera.type = "checkbox"; camera.checked = d.cinematic === true;
       camera.addEventListener("change", function () { if (camera.checked) d.cinematic = true; else delete d.cinematic; });
@@ -540,7 +542,7 @@
   }
   function strip(d) {
     var out = {};
-    Object.keys(d || {}).sort().forEach(function (k) { if (k !== "id" && k !== "builtin" && d[k] !== "" && !(k === "spawnDelay" && d[k] === 3)) out[k] = d[k]; });
+    Object.keys(d || {}).sort().forEach(function (k) { if (k !== "id" && k !== "builtin" && d[k] !== "" && !(k === "spawnDelay" && d[k] === 3) && !(k === "warningLead" && d[k] === 6)) out[k] = d[k]; });
     if (out.units) out.units = arr(out.units).map(function (u) { return { record: u.record, count: u.count }; });
     if (out.items) out.items = arr(out.items).map(function (g) {
       var item = {};

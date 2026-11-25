@@ -53,7 +53,7 @@ local function updateMap(list)
 end
 
 local function same(a, b)
-    return a and b and a.id == b.id and a.percent == b.percent and a.players == b.players and a.extra == b.extra
+    return a and b and a.id == b.id and a.percent == b.percent and a.players == b.players and a.extra == b.extra and a.style == b.style
 end
 
 local function updatePlayers(list)
@@ -80,6 +80,7 @@ local function updatePlayers(list)
                 percent = math.max(1, math.ceil(best.npc.health / best.npc.maxHealth * 100)),
                 players = best.n.players or 1,
                 height = best.n.height,
+                style = GM.bossBarStyle,
                 extra = best.npc.repairing and "repairing, shielded" or best.npc.phase or "",
             }
         end

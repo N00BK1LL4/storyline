@@ -129,7 +129,7 @@ function clean.av(d)
         fireSeconds = number(d.fireSeconds, 0, 300, 90),
         squadId = presetId(d.squadId), bossId = presetId(d.bossId), -- nil: nobody
         objectivesId = presetId(d.objectivesId),
-        spawnDelay = number(d.spawnDelay, 0, 60, 3),
+        spawnDelay = number(d.spawnDelay, 0, 60, 3), warningLead = number(d.warningLead, 0, 60, 6),
         cinematic = d.cinematic == true or nil,
         warning = text(d.warning, 160), arrival = text(d.arrival, 160),
     }

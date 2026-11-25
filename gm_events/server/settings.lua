@@ -11,6 +11,8 @@ local Tune = Open77.tunables.declare({
         label = "Most players counted", description = "Health stops growing past this many players." },
     bossBarRadius = { value = 120, type = "integer", min = 30, max = 400, unit = "m", apply = "live", group = "Bosses", order = 5,
         label = "Boss bar distance", description = "Players within this distance see the boss health bar." },
+    bossBarStyle = { value = "off", type = "enum", choices = { "off", "slim", "full" }, apply = "live", group = "Bosses", order = 7,
+        label = "Boss bar at the top", description = "off: only the health card over the boss. slim: also a thin line at the top. full: also the large bar." },
     mapMarker = { value = true, type = "boolean", apply = "live", group = "Bosses", order = 6,
         label = "Show bosses on the map", description = "Marks bosses for every player. Needs the op77_map3d resource." },
     announceMethod = { value = "notification", type = "enum", choices = { "notification", "chat", "export", "event", "none" },
@@ -85,7 +87,7 @@ local Tune = Open77.tunables.declare({
 -- The rest of the code keeps reading GM.<name>; each read goes to the live value.
 local live = {
     objectiveGrace = true, npcDistance = true, eventDistance = true, audienceRadius = true, bossBarRadius = true,
-    maxSquad = true, corpseSeconds = true, mapMarker = true, announceBosses = true,
+    maxSquad = true, corpseSeconds = true, mapMarker = true, bossBarStyle = true, announceBosses = true,
 }
 for _, key in ipairs({ "announceMethod", "announceResource", "announceExport", "announceTitle", "announceSeconds",
     "msgBossAppeared", "msgBossHealth", "msgBossDefeated", "msgCrashWarning", "msgCrashSurvivors", "msgBossfightIntro",

@@ -462,6 +462,22 @@ end
 function actions.av(anchor, step)
     local c = GM.av
     if step and step.def then c = setmetatable(step.def, { __index = GM.av }) end
+    -- The warning comes first and is off the screen before anyone arrives.
+    local lead = c.warningLead or 6
+    if c.warning and not (step and step.warned) then
+        GM.say("scene", c.warning, {
+            seconds = math.max(3, math.min(GM.announceSeconds, lead + c.flightSeconds)),
+        })
+        if lead > 0 then
+            local run = runId
+            SetTimeout(math.floor(lead * 1000), function()
+                if run ~= runId then return end
+                local ok, why = actions.av(anchor, { def = c, warned = true })
+                if not ok then reply(anchor.source, nil, false, tostring(why)) end
+            end)
+            return true, ("warning sent, AV in %d s"):format(math.floor(lead))
+        end
+    end
     local heading = anchor.heading + (c.direction or 0)
     local h = math.rad(heading)
     local fx, fy = math.cos(h), math.sin(h) -- crosses the staff member's view
@@ -477,7 +493,6 @@ function actions.av(anchor, step)
     local frozen, why = Open77.vehicles.setFrozen(id, true)
     if not frozen then print("[gm] AV freeze refused: " .. tostring(why)) end
 
-    if c.warning then GM.say("scene", c.warning) end
     if c.cinematic then
         actions.cinematic(anchor, { seconds = math.min(20, c.flightSeconds + c.loadMs / 1000 + 3) })
     end

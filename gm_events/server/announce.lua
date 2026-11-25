@@ -59,7 +59,7 @@ function GM.say(kind, template, vars)
     end
     vars = vars or {}
     local p = {
-        kind = kind, title = GM.announceTitle, text = fill(template, vars), seconds = GM.announceSeconds,
+        kind = kind, title = GM.announceTitle, text = fill(template, vars), seconds = math.floor(vars.seconds or GM.announceSeconds),
         method = method, boss = vars.boss, percent = vars.percent, players = vars.players,
     }
     if p.title == "-" then p.title = "" end

@@ -1,5 +1,5 @@
 -- Boss bar (NativeUI) and the name card over the boss. Display only.
-local EMPTY = { active = false, low = false, name = "", percent = 0, note = "" }
+local EMPTY = { active = false, slim = true, low = false, name = "", percent = 0, note = "" }
 local hud, hudFailed
 local card, cardNpc, cardEntity
 local coreId, lastCoreHit = nil, 0
@@ -38,7 +38,7 @@ local function updateCard(state)
     if not entity then return dropCard() end
     local presentation = { -- always the whole table: it is never patched by field
         label = state.name,
-        sublabel = state.percent .. "%",
+        sublabel = state.percent .. "%" .. ((state.extra or "") ~= "" and ("  " .. state.extra) or ""),
         color = "#F2F2F2",
         accent = "#FF4D3D",
         background = "#12080AE0",
@@ -74,7 +74,8 @@ RegisterNetEvent("gm_events:boss", function(state)
     end
     if doc then
         doc:merge("boss", {
-            active = true,
+            active = state.style ~= "off",
+            slim = state.style ~= "full",
             low = state.percent <= 25,
             name = state.name,
             percent = state.percent,
