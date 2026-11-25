@@ -1,16 +1,16 @@
 Storyline (gm_events) licence
-Copyright (c) 2026 [YOUR OPEN77 HANDLE]
+Copyright (c) 2026 NOOB_KILLA
 
 You may, free of charge:
 
 1. Use Storyline on any server, public or private.
 2. Include unmodified copies of Storyline in a server package or resource collection you
-   distribute, with this licence kept in it and credit to [YOUR OPEN77 HANDLE].
+   distribute, with this licence kept in it and credit to NOOB_KILLA.
 3. Change its settings, its presets and server/config.lua, and copy and change anything in
    the examples folder, for use on servers.
 4. Write your own resources that work with it through its exports, events and hooks.
 
-You must contact [YOUR OPEN77 HANDLE] first, through the Storyline page on the OPEN//77 Workshop,
+You must contact NOOB_KILLA first, through the Storyline page on the OPEN//77 Workshop,
 before you:
 
 5. Change any other part of Storyline, other than privately while testing it.

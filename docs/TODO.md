@@ -54,7 +54,7 @@ stalled. Code kept in `experiments/`. Reconsider if OPEN//77 improves vehicle AI
 
 - [x] Name, licence (contact first for changes and forks), Chimera bundled as gm_chimera.
 - [x] TESTER-GUIDE.md, WORKSHOP-LISTING.md, changelog, third-party notices, build with checks.
-- [ ] Fill in your handle in gm_events/LICENSE (3 places), then run build.py without --draft.
+- [x] Handle filled in, final build made.
 - [ ] Screenshots and cover image.
 - [ ] Publish, or share the ZIP with testers.
 - [ ] Decide whether to send `chimera-collapse-report.md` to the OPEN//77 team.

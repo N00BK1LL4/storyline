@@ -43,7 +43,7 @@ Unofficial fan work, not affiliated with CD PROJEKT RED or OPEN//77.
 
 ## Still needed from you
 
-- Your handle in gm_events/LICENSE (3 places)
+- (done) Your handle is in gm_events/LICENSE
 - A cover image and some screenshots
 - Tested builds: server 2.50.0+op77.261 (your client's build is in the launcher)
 - For one package with both resources: Warden, Workshop tab, *Export your resources*, tick both.
