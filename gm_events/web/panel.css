@@ -36,6 +36,10 @@ section.on { display: flex; }
 .row input[type=text] { flex: 1; min-width: 200px; }
 .list { width: 420px; overflow-y: auto; }
 .editor { flex: 1; overflow-y: auto; border-left: 1px solid var(--line); padding-left: 24px; }
+textarea { font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line); padding: 7px 12px; width: 100%; resize: none; }
+#stage > * { margin-bottom: 8px; }
+#castWho { width: 100%; }
+#castLines button { display: block; width: 100%; text-align: left; margin-bottom: 4px; }
 .editor.narrow { flex: 0 0 400px; }
 .narrow .field > span { width: 150px; }
 .narrow .field input[type=text], .narrow select { width: 190px; }

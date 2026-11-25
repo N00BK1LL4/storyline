@@ -120,6 +120,18 @@ Bosses pay every player who hurt them; enemies pay everyone who did, or only the
 (your choice); objectives pay everyone who was there long enough. Ghosted staff and players
 who left never earn anything. Nothing is given for bodies staff clean up.
 
+## Story characters and bookmarks
+
+**Cast tab.** Save characters with a model, a starting pose and up to ten lines, place them,
+and direct them live: type a line and it appears over their head and as a subtitle for
+players in range (whisper 6 m, normal 18 m, shout 50 m), with an optional voice bark from
+the game. They can walk, follow, pose and face players, never fight, and cannot be hurt
+unless you allow it. What staff say through them is written to the server log. Needs
+`command.gm.cast`, and `command.gm.say` to speak; `command.gm.*` includes both.
+
+**Bookmarks** (Live tab, needs `gm_events.edit`) are named places. They appear under
+**Target**, so any event can start there, and scripts may use their names.
+
 ## Interactables
 
 Make things players use by holding a key (E, rebindable) in the panel's **Interact** tab:

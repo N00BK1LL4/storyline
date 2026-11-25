@@ -27,6 +27,7 @@
     <button type="button" data-tab="fall">Falling</button>
     <button type="button" data-tab="drop">Supply drop</button>
     <button type="button" data-tab="interact">Interact</button>
+    <button type="button" data-tab="cast">Cast</button>
     <button type="button" data-tab="objectives">Objectives</button>
     <button type="button" data-tab="loot">Loot</button>
     <button type="button" data-tab="announce">Announcements</button>
@@ -49,6 +50,16 @@
         <div class="row">
           <button type="button" data-cmd="gm.mark">Mark where I stand</button>
           <button type="button" data-cmd="gm.unmark">Clear mark</button>
+        </div>
+        <div id="bookmarkBox">
+          <h2>Bookmarks</h2>
+          <div class="row">
+            <input id="bmName" type="text" maxlength="32" placeholder="Name">
+            <input id="bmGroup" type="text" maxlength="24" placeholder="Group (optional)">
+            <button id="bmSave" type="button">Save where I stand</button>
+          </div>
+          <div id="bookmarks"></div>
+          <p class="dim">Bookmarks appear under Target. Saving the same name moves it.</p>
         </div>
       </div>
       <div class="col">
@@ -99,6 +110,32 @@
     <section data-view="fall"><div class="list" data-list="fall"></div><div class="editor" data-editor="fall"></div></section>
     <section data-view="drop"><div class="list" data-list="drop"></div><div class="editor" data-editor="drop"></div></section>
     <section data-view="interact"><div class="list" data-list="interact"></div><div class="editor" data-editor="interact"></div></section>
+    <section data-view="cast">
+      <div class="list" data-list="cast"></div>
+      <div class="editor" data-editor="cast"></div>
+      <div class="editor narrow" id="stage">
+        <h2>On stage</h2>
+        <select id="castWho"></select>
+        <p class="dim" id="castDoing"></p>
+        <textarea id="castLine" maxlength="160" rows="3" placeholder="What they say"></textarea>
+        <div class="row">
+          <select id="castVolume"><option value="normal">Normal</option><option value="whisper">Whisper</option><option value="shout">Shout</option></select>
+          <select id="castBark"></select>
+          <button id="castSay" type="button" class="main">Say it</button>
+        </div>
+        <div id="castLines"></div>
+        <div class="row">
+          <button type="button" data-cast="come">Come here</button>
+          <button type="button" data-cast="go">Go to target</button>
+          <button type="button" data-cast="follow">Follow</button>
+          <button type="button" data-cast="stay">Stay</button>
+          <button type="button" data-cast="face">Face nearest</button>
+        </div>
+        <div class="row"><select id="castPose"></select><button type="button" data-cast="pose">Pose</button></div>
+        <div class="row"><label><input id="castRun" type="checkbox"> Run</label><button type="button" data-cast="remove" class="danger">Remove</button></div>
+        <p class="dim">Follow and Go use the Target at the top; Follow means you unless a player is chosen.</p>
+      </div>
+    </section>
     <section data-view="objectives"><div class="list" data-list="objectives"></div><div class="editor" data-editor="objectives"></div></section>
     <section data-view="loot">
       <div class="list" data-list="loot"></div>

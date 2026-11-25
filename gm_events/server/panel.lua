@@ -237,9 +237,28 @@ function clean.interact(d)
     }
 end
 
+local poses, barks = { [""] = true }, { [""] = true }
+for _, p in ipairs(GM.castPoses) do poses[p] = true end
+for _, b in ipairs(GM.castBarks) do barks[b] = true end
+
+function clean.cast(d)
+    local name = text(d.name, 32)
+    if not name then return nil, "name: 1 to 32 characters" end
+    local record = character(d.record)
+    if not record then return nil, "choose a model" end
+    local lines = {}
+    if type(d.lines) == "table" then
+        for i = 1, math.min(#d.lines, 10) do
+            local line = text(d.lines[i], 160)
+            if line then lines[#lines + 1] = line end
+        end
+    end
+    return { name = name, record = record, pose = poses[d.pose or ""] and d.pose or "", mortal = d.mortal == true or nil, lines = lines }
+end
+
 -- ------------------------------------------------------------------- presets
 
-local presets = { boss = {}, squad = {}, av = {}, fall = {}, drop = {}, interact = {}, objectives = {}, loot = {} } -- kind -> id -> def
+local presets = { boss = {}, squad = {}, av = {}, fall = {}, drop = {}, interact = {}, cast = {}, objectives = {}, loot = {} } -- kind -> id -> def
 local status = {}                                  -- record -> "tested" | "broken"
 local shipped = {}
 for _, record in ipairs(GM.testedModels) do shipped[record] = "tested" end
@@ -396,7 +415,7 @@ local function sendState(playerId)
     local hookTypes, hookChecks = GM.hookList()
     send(playerId, "gm_events:panel:state", { part = "hooks", hookTypes = hookTypes, hookChecks = hookChecks })
     send(playerId, "gm_events:panel:state", {
-        part = "base", scenes = scenes, avModels = GM.avModels, fallModels = GM.fallModels, interactModels = GM.interactModels,
+        part = "base", scenes = scenes, avModels = GM.avModels, fallModels = GM.fallModels, interactModels = GM.interactModels, castPoses = GM.castPoses, castBarks = GM.castBarks,
         maxSquad = GM.maxSquad, canEdit = allowed(playerId, EDIT),
         chimera = GetResourceState("open77_chimera") == "running",
     })
@@ -414,7 +433,7 @@ local function sendState(playerId)
         for key in pairs(GM.announceKeys) do values[key] = GM[key] end
         send(playerId, "gm_events:panel:state", { part = "announce", announce = values })
     end
-    for _, kind in ipairs({ "boss", "squad", "av", "fall", "drop", "interact", "objectives", "loot" }) do
+    for _, kind in ipairs({ "boss", "squad", "av", "fall", "drop", "interact", "cast", "objectives", "loot" }) do
         send(playerId, "gm_events:panel:state", { part = kind, [kind] = listOf(kind) })
     end
 end
@@ -444,6 +463,7 @@ local function sendLive(playerId)
     send(playerId, "gm_events:panel:live", {
         bosses = bosses, hostiles = hostiles, players = players,
         objectives = GM.objectiveList(), interacts = GM.interactList(),
+        cast = GM.castList(), bookmarks = GM.bookmarkList(),
         ghost = core.isGhost(playerId), mark = core.mark(playerId) ~= nil,
     })
 end
@@ -465,6 +485,9 @@ local function target(playerId, data, distance)
         if not mark or mark.bucket ~= (me.bucket or 0) then return nil, "no mark set here" end
         return mark
     end
+    if type(data.target) == "string" and data.target:match("^b:") then
+        return GM.bookmarkAnchor(data.target:sub(3), playerId)
+    end
     local id = math.tointeger(tonumber(data.target))
     if id and id > 0 then
         local online = false
@@ -482,7 +505,7 @@ end
 
 -- op -> the typed command whose right it needs
 local spawnRight = { boss = "command.gm.boss", squad = "command.gm.wave", av = "command.gm.av", fall = "command.gm.fall", drop = "command.gm.drop",
-    interact = "command.gm.interact",
+    interact = "command.gm.interact", cast = "command.gm.cast",
     objectives = "command.gm.objectives" }
 local function spawnDistance(kind)
     return kind == "boss" and GM.npcDistance or kind == "squad" and GM.npcDistance + 6 or GM.eventDistance
@@ -608,6 +631,46 @@ function GM.startPreset(kind, wanted, anchor)
     end
     local ok, why = withObjectives(anchor, def.objectivesDef, core.actions[kind], { def = def })
     return ok, why or def.name
+end
+
+function ops.bookmark(playerId, d)
+    if not allowed(playerId, EDIT) then return false, "you need " .. EDIT end
+    if d.delete ~= nil then return GM.deleteBookmark(playerId, tostring(d.delete)) end
+    local name = text(d.name, 32)
+    if not name then return false, "bookmark name: 1 to 32 characters" end
+    return GM.saveBookmark(playerId, name, text(d.group, 24))
+end
+
+function ops.cast(playerId, d)
+    if not allowed(playerId, spawnRight.cast) then return false, "you need " .. spawnRight.cast end
+    local data = {}
+    if d.what == "say" then
+        if not allowed(playerId, "command.gm.say") then return false, "you need command.gm.say" end
+        data.text = text(d.text, 160)
+        if not data.text then return false, "line: 1 to 160 characters" end
+        data.volume = (d.volume == "whisper" or d.volume == "shout") and d.volume or "normal"
+    end
+    if d.what == "say" or d.what == "bark" then
+        data.bark = type(d.bark) == "string" and barks[d.bark] and d.bark or ""
+        if d.what == "bark" and data.bark == "" then return false, "choose a voice first" end
+    elseif d.what == "pose" then
+        if type(d.pose) ~= "string" or d.pose == "" or not poses[d.pose] then return false, "choose a pose first" end
+        data.pose = d.pose
+    elseif d.what == "come" then
+        local me, why = core.freshPlayer(playerId)
+        if not me then return false, why end
+        data.to = { x = me.position.x, y = me.position.y, z = me.position.z, bucket = me.bucket or 0 }
+        data.run = d.run == true
+    elseif d.what == "go" then
+        local to, why = target(playerId, d, 10)
+        if not to then return false, why end
+        data.to, data.run = to, d.run == true
+    elseif d.what == "follow" then
+        data.player = playerId
+        local id = math.tointeger(tonumber(d.target))
+        if id and id > 0 then data.player = id end
+    end
+    return GM.directCast(playerId, d.id, d.what, data)
 end
 
 function ops.interacts(playerId, d)
@@ -928,5 +991,5 @@ CreateThread(function()
 end)
 
 load()
-print(("gm_events panel ready: %d boss, %d squad, %d AV, %d falling, %d drop, %d interactable, %d objective, %d loot presets"):format(
-    count(presets.boss), count(presets.squad), count(presets.av), count(presets.fall), count(presets.drop), count(presets.interact), count(presets.objectives), count(presets.loot)))
+print(("gm_events panel ready: %d boss, %d squad, %d AV, %d falling, %d drop, %d interactable, %d character, %d objective, %d loot presets"):format(
+    count(presets.boss), count(presets.squad), count(presets.av), count(presets.fall), count(presets.drop), count(presets.interact), count(presets.cast), count(presets.objectives), count(presets.loot)))

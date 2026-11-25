@@ -1,0 +1,12 @@
+<rml>
+<head>
+    <title>GM speech</title>
+    <link type="text/rcss" href="nui://open77/open77.rcss"/>
+    <link type="text/rcss" href="speech.rcss"/>
+</head>
+<body data-model="speech">
+<div id="root" data-class-on="active">
+    <div id="line"><span id="name">{{name}}</span><span id="text">{{text}}</span></div>
+</div>
+</body>
+</rml>

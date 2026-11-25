@@ -841,6 +841,7 @@ local function cleanup()
     GM.clearLoot()
     GM.clearDrops()
     GM.clearInteracts()
+    GM.clearCast()
     TriggerClientEvent("gm_events:release", -1)
 end
 
@@ -878,7 +879,7 @@ end
 
 command("gm.help", function()
     return true, "gm.mark, gm.unmark, gm.announce <text>, gm.boss <" .. names(GM.bosses)
-        .. ">, gm.wave <n>, gm.av, gm.fall, gm.drop, gm.interact, gm.boom, gm.fire <sec>, gm.cinematic <sec>, gm.scene <"
+        .. ">, gm.wave <n>, gm.av, gm.fall, gm.drop, gm.interact, gm.cast, gm.say <id> <line>, gm.boom, gm.fire <sec>, gm.cinematic <sec>, gm.scene <"
         .. names(GM.scenes) .. ">, gm.chimera, gm.gas, gm.status, gm.killboss, gm.bring, gm.clean, gm.objectives, gm.loot, gm.ghost [on|off], gm.panel, gm.check, gm.stop"
 end)
 

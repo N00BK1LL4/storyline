@@ -24,9 +24,9 @@
     if (bridge) bridge.emit("gm:error", { text: String(e.message).slice(0, 300) + " @" + e.lineno });
   });
 
-  var state = { boss: [], squad: [], av: [], fall: [], fallModels: [], drop: [], interact: [], interactModels: [], hookTypes: [], hookChecks: [], objectives: [], loot: [], lootItems: [], scenes: [], avModels: [], status: {}, maxSquad: 20, canEdit: false };
+  var state = { boss: [], squad: [], av: [], fall: [], fallModels: [], drop: [], interact: [], interactModels: [], hookTypes: [], hookChecks: [], cast: [], castPoses: [], castBarks: [], objectives: [], loot: [], lootItems: [], scenes: [], avModels: [], status: {}, maxSquad: 20, canEdit: false };
   var live = { bosses: [], players: [], hostiles: 0, ghost: false, mark: false };
-  var drafts = { boss: null, squad: null, av: null, fall: null, drop: null, interact: null, objectives: null, loot: null };
+  var drafts = { boss: null, squad: null, av: null, fall: null, drop: null, interact: null, cast: null, objectives: null, loot: null };
   var req = 0;
 
   /* ---------------------------------------------------------------- models */
@@ -95,7 +95,7 @@
 
   // Warn once before spawning anything doubtful.
   function spawn(kind, def, body) {
-    var records = kind === "squad" ? def.units.map(function (u) { return u.record; }) : kind === "boss" ? [def.record] : [];
+    var records = kind === "squad" ? def.units.map(function (u) { return u.record; }) : kind === "boss" || kind === "cast" ? [def.record] : [];
     if (kind === "av" || kind === "fall" || kind === "drop") {
       var av = arr(bodies(kind)).filter(function (m) { return m.record === def.record; })[0];
       if (av && avVerdict(av) === "broken" && !body.sure) {
@@ -189,6 +189,59 @@
     confirmThen("Send a test announcement to every player on the server?", function () { call("announceTest", {}); });
   });
 
+  /* bookmarks and story characters */
+  $("bmSave").addEventListener("click", function () {
+    var name = $("bmName").value.trim();
+    if (!name) return result("Give the bookmark a name", "bad");
+    call("bookmark", { name: name, group: $("bmGroup").value.trim() });
+    $("bmName").value = "";
+  });
+  function fill(select, options) {
+    var sign = JSON.stringify(options), keep = select.value;
+    if (select.dataset.sign === sign) return;
+    select.dataset.sign = sign;
+    select.textContent = "";
+    options.forEach(function (o) { var n = el("option", "", o[1]); n.value = o[0]; select.appendChild(n); });
+    if (options.some(function (o) { return o[0] === keep; })) select.value = keep;
+  }
+  function onStage() { return arr(live.cast).filter(function (c) { return String(c.id) === $("castWho").value; })[0]; }
+  function renderStage() {
+    var people = arr(live.cast);
+    fill($("castWho"), people.length ? people.map(function (c) { return [String(c.id), c.name]; }) : [["", "Nobody is on stage"]]);
+    fill($("castBark"), [["", "No voice"]].concat(arr(state.castBarks).map(function (b) { return [b, b.replace(/_/g, " ")]; })));
+    fill($("castPose"), [["", "Choose a pose"]].concat(arr(state.castPoses).map(function (p) { return [p, p]; })));
+    var who = onStage(), lines = who ? arr(who.lines) : [], box = $("castLines");
+    $("castDoing").textContent = who ? who.doing : "Place a character from the list on the left.";
+    var sign = who ? who.id + JSON.stringify(lines) : "";
+    if (box.dataset.sign !== sign) {
+      box.dataset.sign = sign;
+      box.textContent = "";
+      lines.forEach(function (line) { box.appendChild(btn(line, "", function () { speak(line); })); });
+    }
+  }
+  $("castWho").addEventListener("change", renderStage);
+  function speak(line) {
+    var who = onStage();
+    if (!who) return result("Place a character first", "bad");
+    call("cast", { id: who.id, what: "say", text: line, volume: $("castVolume").value, bark: $("castBark").value });
+  }
+  $("castSay").addEventListener("click", function () {
+    var line = $("castLine").value.replace(/\s+/g, " ").trim();
+    if (!line) return result("Type a line first", "bad");
+    speak(line);
+    $("castLine").value = "";
+  });
+  $("castLine").addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("castSay").click(); }
+  });
+  all("[data-cast]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var who = onStage();
+      if (!who) return result("Place a character first", "bad");
+      call("cast", { id: who.id, what: b.dataset.cast, pose: $("castPose").value, run: $("castRun").checked });
+    });
+  });
+
   /* loot settings */
   var lootDirty = false;
   function lootView() {
@@ -228,6 +281,7 @@
     var select = $("target"), keep = select.value || "front";
     var options = [["front", "In front of me"]];
     if (live.mark) options.push(["mark", "My mark"]);
+    arr(live.bookmarks).forEach(function (b) { options.push(["b:" + b.id, (b.group ? b.group + ": " : "") + b.name]); });
     arr(live.players).forEach(function (p) { options.push([String(p.id), "Near " + p.name]); });
     var signature = JSON.stringify(options);
     if (select.dataset.signature === signature) return;
@@ -258,6 +312,21 @@
     });
     $("hostiles").textContent = live.hostiles + (live.hostiles === 1 ? " hostile alive" : " hostiles alive");
     renderRuns();
+    renderStage();
+    var marks = arr(live.bookmarks), bmBox = $("bookmarks"), bmSign = JSON.stringify(marks);
+    $("bookmarkBox").style.display = state.canEdit ? "" : "none";
+    if (bmBox.dataset.sign !== bmSign) {
+      bmBox.dataset.sign = bmSign;
+      bmBox.textContent = "";
+      marks.forEach(function (b) {
+        var row = el("div", "row");
+        row.appendChild(el("span", "", (b.group ? b.group + ": " : "") + b.name));
+        row.appendChild(btn("Delete", "", function () {
+          confirmThen("Delete the bookmark \"" + b.name + "\"?", function () { call("bookmark", { delete: b.id }); });
+        }));
+        bmBox.appendChild(row);
+      });
+    }
     var list = arr(live.interacts), inBox = $("interacts"), sign = JSON.stringify(list);
     if (inBox.dataset.sign !== sign) {
       inBox.dataset.sign = sign;
@@ -347,6 +416,7 @@
       return { name: "", prompt: "Hold to use", model: "electronics.monitor.device", count: 1, spread: 8, seconds: 5, players: 1,
         uses: 1, cooldown: 0, effect: "none", fuse: 0, blastRadius: 8, blastDamage: 0, spawnDelay: 2 };
     },
+    cast: function () { return { name: "", record: "", pose: "", lines: [] }; },
     objectives: function () { return { name: "", radius: 60, items: [newGoal("enemies")], ordered: true, timeLimit: 0 }; },
     loot: function () { return { name: "", entries: [{ item: "", min: 1, max: 1, chance: 100 }] }; }
   };
@@ -365,6 +435,7 @@
       var e = arr(d.entries).length;
       return e + (e === 1 ? " item" : " items");
     }
+    if (kind === "cast") return short(d.record) + (d.mortal ? ", can be killed" : "");
     if (kind === "interact") return d.prompt + ", " + d.seconds + " s" + (d.count > 1 ? ", " + d.count + " of them" : "");
     if (kind === "objectives") {
       var n = arr(d.items).length;
@@ -383,6 +454,7 @@
         drafts[kind] = JSON.parse(JSON.stringify(d));
         if (kind === "squad") drafts[kind].units = arr(drafts[kind].units);
         if (kind === "objectives") drafts[kind].items = arr(drafts[kind].items);
+        if (kind === "cast") drafts[kind].lines = arr(drafts[kind].lines);
         if (kind === "loot") drafts[kind].entries = arr(drafts[kind].entries);
         renderKind(kind);
       });
@@ -604,6 +676,23 @@
       box.appendChild(add);
       objectivesField(box, d);
       lootField(box, d, "Rolled for every enemy in the squad.");
+    } else if (kind === "cast") {
+      box.appendChild(field("Model", modelRow(d, redraw)));
+      box.appendChild(field("Starts by", choice(d, "pose", [["", "Standing"]].concat(arr(state.castPoses).map(function (p) { return [p, p]; })))));
+      box.appendChild(field("Can be killed", tickBox(d, "mortal")));
+      box.appendChild(el("h2", "", "Saved lines: " + d.lines.length + " of 10"));
+      d.lines.forEach(function (line, i) {
+        var holder = { t: line }, row2 = el("div", "field"), input = textInput(holder, "t", 160);
+        input.addEventListener("input", function () { d.lines[i] = holder.t; });
+        row2.appendChild(input);
+        row2.appendChild(btn("Remove", "", function () { d.lines.splice(i, 1); redraw(); }));
+        box.appendChild(row2);
+      });
+      var addLine = btn("Add line", "", function () { d.lines.push(""); redraw(); });
+      addLine.disabled = d.lines.length >= 10;
+      box.appendChild(addLine);
+      box.appendChild(el("p", "dim", "Story characters never fight. They cannot be hurt unless you tick Can be killed."));
+      if (state.canEdit && d.record) box.appendChild(field("Model note", noteButtons(d.record)));
     } else if (kind === "interact") {
       box.appendChild(field("What players do", textInput(d, "prompt", 40)));
       box.appendChild(field("Looks like", choice(d, "model", arr(state.interactModels).map(function (m) { return [m.model, m.name]; }))));
@@ -706,7 +795,7 @@
         if (!same) return result("Save the table first, then try it", "bad");
         confirmThen("Give yourself one real roll of this table?", function () { call("lootTest", { id: d.id }); });
       }));
-    } else row.appendChild(btn(kind === "objectives" ? "Start" : kind === "interact" ? "Place" : "Spawn", "main", function () {
+    } else row.appendChild(btn(kind === "objectives" ? "Start" : kind === "interact" || kind === "cast" ? "Place" : "Spawn", "main", function () {
       // Unchanged presets go by id, which needs no editor right.
       var unchanged = d.id && JSON.stringify(strip(d)) === JSON.stringify(strip(original(kind, d.id)));
       if (unchanged) return spawn(kind, d, { id: d.id });
@@ -742,6 +831,7 @@
       Object.keys(e).sort().forEach(function (k) { if (e[k] !== "") entry[k] = e[k]; });
       return entry;
     });
+    if (out.lines) out.lines = arr(out.lines).filter(function (l) { return l.trim(); });
     if (out.items) out.items = arr(out.items).map(function (g) {
       var item = {};
       Object.keys(g).sort().forEach(function (k) { if (g[k] !== "") item[k] = g[k]; });
@@ -757,7 +847,7 @@
     var tab = document.querySelector('[data-tab="chimera"]');
     tab.style.display = state.chimera ? "" : "none";
     if (!state.chimera && tab.classList.contains("on")) document.querySelector('[data-tab="live"]').click();
-    ["boss", "squad", "av", "fall", "drop", "interact", "objectives", "loot"].forEach(renderKind);
+    ["boss", "squad", "av", "fall", "drop", "interact", "cast", "objectives", "loot"].forEach(renderKind);
     renderLootSettings();
     [["chObjectives", "objectives", "No objectives", "objectives"], ["chLoot", "loot", "No loot", "loot table"]].forEach(function (c) {
       var select = $(c[0]), chosen = select.value;

@@ -1,0 +1,15 @@
+/* Subtitle, bottom centre. 1 dp = 1 px of the 1080p reference. */
+body { width: 100%; height: 100%; pointer-events: none; font-family: "Chakra Petch"; font-weight: bold; color: #f2f2f2; }
+
+#root
+{
+    position: absolute; left: 0; right: 0; bottom: 170dp;
+    display: flex; flex-direction: row; justify-content: center;
+    opacity: 0; visibility: hidden;
+    transition: opacity 0.2s cubic-out;
+}
+#root.on { opacity: 1; visibility: visible; }
+
+#line { max-width: 900dp; padding: 8dp 18dp; background-color: #0a1220b0; text-align: center; }
+#name { display: block; font-size: 15dp; color: #8fc7ff; }
+#text { display: block; font-size: 21dp; }

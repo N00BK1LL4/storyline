@@ -110,11 +110,12 @@ exports("failObjectives", control("fail"))
 exports("endObjectives", control("end"))
 
 -- Start a saved or built-in preset from a script: kind "objectives" or "interact",
--- by its id or its name. at = { x, y, z, heading?, bucket? }
+-- by its id or its name. at = { x, y, z, heading?, bucket? }, or a bookmark's name
 exports("start", function(kind, preset, at)
     local resource, why = caller()
     if not resource then return nil, why end
     if kind ~= "objectives" and kind ~= "interact" then return nil, "kind must be objectives or interact" end
+    if type(at) == "string" then at = GM.bookmarkAnchor(at, 0) end -- a bookmark's name
     local x, y, z = tonumber(at and at.x), tonumber(at and at.y), tonumber(at and at.z)
     if not x or not y or not z then return nil, "at needs x, y and z" end
     local ok, text = GM.startPreset(kind, preset, {
