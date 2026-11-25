@@ -145,6 +145,7 @@ local function give(set, source, name, playerId, position)
     for _, i in ipairs(items) do parts[#parts + 1] = i.amount .. "x " .. i.item end
     print(("[gm] loot %s: %s -> player %s from %s (%s)"):format(
         award.id, table.concat(parts, ", "), tostring(playerId or "-"), name, set.name))
+    GM.moment("lootAwarded", { id = award.id, name = name, source = source, table = set.name, playerId = playerId, items = items })
     deliver(entry)
     return award.id
 end
@@ -277,6 +278,13 @@ AddEventHandler("onResourceStop", function(name)
     catalogue[name] = nil
     if name == GetCurrentResourceName() then GM.clearLoot() end
 end)
+
+function GM.lootProviders()
+    local list = {}
+    for resource, items in pairs(catalogue) do list[#list + 1] = { resource = resource, items = #items } end
+    table.sort(list, function(a, b) return a.resource < b.resource end)
+    return list
+end
 
 function GM.lootItems()
     local list = {}

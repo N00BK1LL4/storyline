@@ -1,6 +1,6 @@
 -- Settings an owner changes in Warden's Tuning tab. They apply at once, are saved
 -- by the server (tunables.json) and survive updates of this mod.
-local Tune = Open77.tunables.declare({
+GM.settingDefs = {
     scaleHealth = { value = true, type = "boolean", apply = "live", group = "Bosses", order = 1,
         label = "Scale health with players", description = "Bosses gain health for each player near them." },
     scalePerPlayer = { value = 0.7, type = "number", min = 0, max = 3, step = 0.1, apply = "live", group = "Bosses", order = 2,
@@ -98,7 +98,9 @@ local Tune = Open77.tunables.declare({
         label = "Largest squad", description = "Most NPCs one squad may spawn. Large squads can fill a player's entity limit." },
     corpseSeconds = { value = 60, type = "integer", min = 5, max = 600, unit = "s", apply = "live", group = "Limits", order = 2,
         label = "Remove bodies after", description = "How long a dead event NPC stays." },
-})
+}
+local Tune = Open77.tunables.declare(GM.settingDefs)
+function GM.setting(key) return Tune[key] end
 
 -- The rest of the code keeps reading GM.<name>; each read goes to the live value.
 local live = {

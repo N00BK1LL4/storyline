@@ -3,9 +3,11 @@
 //
 // gm_events.edit and gm_events.loot are separate on purpose: command.gm.* does NOT include
 // them. gm_events.loot lets staff spawn things that give players loot.
+// gm_events.owner is for the server owner alone: hooks and settings. Warden's owner role has it already.
 {
   "roles": [
     { "name": "event-host", "permissions": ["command.gm.*"] },
-    { "name": "event-lead", "permissions": ["command.gm.*", "gm_events.edit", "gm_events.loot"] }
+    { "name": "event-lead", "permissions": ["command.gm.*", "gm_events.edit", "gm_events.loot"] },
+    { "name": "event-owner", "permissions": ["command.gm.*", "gm_events.edit", "gm_events.loot", "gm_events.owner"] }
   ]
 }

@@ -40,6 +40,7 @@
         <h3>Shared</h3>
         <button type="button" data-tab="loot"><span>Loot</span><span class="count"></span></button>
         <button type="button" data-tab="announce"><span>Announcements</span><span class="count"></span></button>
+        <button type="button" data-tab="settings"><span>Settings</span><span class="count"></span></button>
       </div>
     </nav>
   </div>
@@ -184,9 +185,14 @@
           <option value="killer">The last to hurt it</option>
         </select></label>
         <label class="field"><span>Objectives: least seconds</span><input type="number" min="0" max="3600" data-loot="lootMinSeconds"></label>
+        <p class="dim" id="lootOwner">Only the server owner can change these.</p>
         <button id="lootSave" type="button" class="main">Save settings</button>
         <p class="dim" id="lootHelp"></p>
       </div>
+    </section>
+    <section data-view="settings">
+      <div class="list"><div class="items" id="setNav"></div></div>
+      <div class="editor"><div class="scroll" id="setBody"></div></div>
     </section>
     <section data-view="announce">
       <div class="col"><div class="tile">

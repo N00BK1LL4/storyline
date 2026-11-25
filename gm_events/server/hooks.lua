@@ -60,6 +60,13 @@ local function sorted(from)
     table.sort(list, function(a, b) return a.label < b.label end)
     return list
 end
+function GM.hookProviders()
+    local list = {}
+    for _, entry in pairs(types) do list[#list + 1] = { resource = entry.resource, what = "Objective type", label = entry.label } end
+    for _, entry in pairs(checks) do list[#list + 1] = { resource = entry.resource, what = "Interaction check", label = entry.label } end
+    table.sort(list, function(a, b) return a.resource .. a.what .. a.label < b.resource .. b.what .. b.label end)
+    return list
+end
 function GM.hookList() return sorted(types), sorted(checks) end
 
 -- Ask the owner's resource whether a use succeeds (a minigame, an item, a job...).
@@ -118,6 +125,8 @@ exports("start", function(kind, preset, at)
     if type(at) == "string" then at = GM.bookmarkAnchor(at, 0) end -- a bookmark's name
     local x, y, z = tonumber(at and at.x), tonumber(at and at.y), tonumber(at and at.z)
     if not x or not y or not z then return nil, "at needs x, y and z" end
+    local allowed, refused = GM.askStart({ kind = kind, name = tostring(preset), by = resource, position = { x = x, y = y, z = z, bucket = 0 } })
+    if not allowed then return nil, refused end
     local ok, text = GM.startPreset(kind, preset, {
         x = x, y = y, z = z, heading = tonumber(at.heading) or 0, bucket = math.tointeger(tonumber(at.bucket)) or 0, source = 0,
     })

@@ -178,6 +178,8 @@ function GM.directCast(playerId, id, what, data)
         local ok, text = say(c, data.text, data.volume)
         if ok then
             print(("[gm] player %s as %s: %s"):format(tostring(playerId), c.name, data.text))
+            GM.moment("characterSpoke", { name = c.name, text = data.text, volume = data.volume, staff = playerId,
+                position = { x = npc.x, y = npc.y, z = npc.z, bucket = npc.bucket } })
             if data.bark and data.bark ~= "" then
                 local heard, why = Open77.npcs.speak(c.npc, data.bark)
                 if not heard then text = text .. ", no voice: " .. tostring(why) end

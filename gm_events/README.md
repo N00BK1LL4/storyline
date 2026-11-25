@@ -17,6 +17,7 @@ mode, all from one in-game panel.
    | `command.gm.*` | Open the panel and run events |
    | `gm_events.edit` | Also create, change and delete presets |
    | `gm_events.loot` | Also run events that give loot, and edit loot tables |
+   | `gm_events.owner` | Set up hooks and change settings (the server owner) |
 
 4. Join, press **Home** (or run `gm.panel`), then run `gm.check` once. It lists
    anything that still needs attention.
@@ -148,6 +149,41 @@ counts them. Placing one needs `command.gm.interact`, which `command.gm.*` inclu
 
 Your scripts can listen to `gm_events:interact`: `phase` (used, finished, ended), `id`,
 `name`, `players`, `left`, `total`.
+
+## Settings and hooks
+
+The panel's **Settings** tab holds three things. All staff can read it; it is greyed out
+for everyone without `gm_events.owner`. Warden's owner role has that right already.
+
+**First setup.** The first time the owner opens the panel it opens here with a short
+checklist. **Finish setup** locks the hooks, so they are set once and cannot be changed by
+accident. The owner can unlock them again.
+
+**Hooks.** Choose a moment, then the resource and function to call. No change to this mod
+is needed, and **Test** calls it with sample data marked `test = true`.
+
+```lua
+-- your resource, server side
+exports("onEvent", function(e)
+    -- e.moment, e.seq, and what is known: e.name, e.kind, e.playerId, e.players, e.position, e.staff
+    if e.test then return true end
+    MyLog.write(e.moment, e.name)
+    return true
+end)
+```
+
+Moments: an event started, impact, supply drop landed and opened, boss appeared and
+defeated, enemy defeated, player entered and left, objectives started, done, completed and
+failed, interactable used and finished, loot awarded, a story character spoke, everything
+stopped. Scripts can also listen to `gm_events:moment`.
+
+*Before an event starts* is different: your function must answer `true`, or `false` and a
+reason to refuse. A missing, failing or slow (5 s) function also refuses, so your rules
+are never skipped. It covers events started from the panel and from scripts, not typed
+`gm.` commands.
+
+**Connected resources** lists what other resources registered. **The rest** are this mod's
+settings, the same ones Warden's Tuning tab shows.
 
 ## Your own objectives and interactions
 

@@ -53,6 +53,11 @@ local function raise(g, phase, players)
         seq = eventNumber, phase = phase, id = g.id, name = g.def.name, players = players or {}, left = left, total = #g.points,
     })
     if not ok then print("[gm] gm_events:interact not raised: " .. tostring(why)) end
+    if phase == "used" or phase == "finished" then
+        GM.moment(phase == "used" and "interactUsed" or "interactFinished", {
+            id = g.id, name = g.def.name, players = players or {}, playerId = players and players[1], left = left, total = #g.points,
+        })
+    end
 end
 
 -- ------------------------------------------------------------------- display

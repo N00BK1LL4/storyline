@@ -59,6 +59,13 @@ function GM.clearDrops()
     for _, d in ipairs(list) do remove(d) end
 end
 
+local function moment(d, id, players)
+    GM.moment(id, {
+        kind = "drop", name = d.def.name, players = players or {}, playerId = players and players[1],
+        position = { x = d.anchor.x, y = d.anchor.y, z = d.anchor.z, bucket = d.anchor.bucket },
+    })
+end
+
 local function open(d, by)
     local names = {}
     if d.def.lootDef then
@@ -73,6 +80,7 @@ local function open(d, by)
     end
     core.reply(d.anchor.source, nil, true, d.def.name .. " opened by player " .. by.id .. (#names > 1 and (", shared by " .. #names) or ""))
     GM.say("scene", d.def.opened)
+    moment(d, "dropOpened", #names > 0 and names or { by.id })
     GM.burst("electric.emp.small", d.at, d.anchor.bucket, 1.5)
 end
 
@@ -241,6 +249,7 @@ local function fly(d)
             local flare = d.flare
             if flare then SetTimeout(25000, function() if d.flare == flare then flare.stop() d.flare = nil end end) end
             core.reply(anchor.source, nil, true, def.name .. " has landed")
+            moment(d, "dropLanded")
             land(d)
             hover(d)
         end)

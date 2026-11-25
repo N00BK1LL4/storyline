@@ -323,6 +323,7 @@ function actions.boss(anchor, step)
     })
     if not id then return false, "boss refused: " .. tostring(reason) end
     announceBoss("bossAppeared", preset.intro or GM.msgBossAppeared, npcs[tostring(id)])
+    GM.moment("bossAppeared", { name = preset.name, record = preset.record, position = { x = anchor.x, y = anchor.y, z = anchor.z, bucket = anchor.bucket } })
     return true
 end
 
@@ -359,6 +360,7 @@ function actions.chimera(anchor, step)
         if not ok then print("[gm] attitude refused: " .. tostring(why)) end
     end
     announceBoss("bossAppeared", GM.msgBossAppeared, n)
+    GM.moment("bossAppeared", { name = n.name, record = "chimera", position = { x = anchor.x, y = anchor.y, z = anchor.z, bucket = anchor.bucket } })
     return true, def.name .. " created; give it a few seconds to load"
 end
 
@@ -689,6 +691,8 @@ function actions.av(anchor, step)
         end
         reply(anchor.source, nil, true, ((c.fall and "Impact" or "AV down") .. " after %d position updates (waited %d ms to stream)"):format(moved, waited))
 
+        GM.moment("impact", { kind = c.fall and "fall" or "av", name = c.name or "AV crash",
+            position = { x = anchor.x, y = anchor.y, z = anchor.z, bucket = anchor.bucket } })
         -- Whoever came with the crash. The panel resolved these when it started.
         local brings = c.squadDef or c.bossDef or c.withChimera or c.interactDef
         local run
@@ -1025,6 +1029,7 @@ end)
 
 command("gm.stop", function()
     cleanup()
+    GM.moment("stopped", {})
     return true, "stopped and cleaned up"
 end)
 
@@ -1086,6 +1091,10 @@ local function onDefeat(key, n, from)
     n.settled = true
     GM.objectiveDeath(n)
     GM.lootDeath(n, from)
+    local fought = {}
+    for id in pairs(n.by or {}) do fought[#fought + 1] = id end
+    table.sort(fought)
+    GM.moment(n.boss and "bossDefeated" or "enemyDefeated", { name = n.name or "enemy", players = fought, playerId = n.lastBy })
     if n.boss then announceBoss("bossDefeated", n.outro or GM.msgBossDefeated, n) end
     if n.chimera and GM.deathWreckSeconds == 0 then return end -- stays until gm.clean or gm.stop
     SetTimeout((n.chimera and GM.deathWreckSeconds or GM.corpseSeconds) * 1000, function()

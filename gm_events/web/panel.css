@@ -154,6 +154,24 @@ section.on { display: flex; }
 .board.two { grid-template-columns: 1fr 1.4fr; }
 .group > .inside .record, .field > .dim { min-width: 0; }
 select option { background: #0a2142; color: var(--text); }
+.hook { display: grid; grid-template-columns: 2fr 1.2fr 1.2fr auto; gap: 8px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.hook:first-child { border-top: 0; }
+.hook > * { min-width: 0; width: 100%; }
+.hook .row { flex-wrap: nowrap; width: auto; }
+.hook .said { grid-column: 1 / -1; font-size: 14px; color: var(--dim); }
+.hook .said.bad { color: var(--red); }
+.hook .said.ok { color: var(--green); }
+.setting { display: grid; grid-template-columns: 1fr 240px; gap: 4px 24px; align-items: center; padding: 9px 0; border-top: 1px solid var(--line); grid-column: 1 / -1; }
+.setting:first-child { border-top: 0; }
+.setting .control { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
+.setting .control select { width: 100%; }
+.setting .control input[type=number] { width: 110px; }
+code { font: 14px Consolas, monospace; background: var(--well); padding: 8px 12px; border-radius: 3px; display: block; white-space: pre-wrap; user-select: text; }
+.hook.off, .setting.off .control { opacity: .45; }
+.notice { border: 1px solid var(--line); border-left: 3px solid var(--main); background: var(--well); padding: 12px 16px; border-radius: 3px; display: flex; gap: 14px; align-items: center; }
+.notice p { flex: 1; min-width: 0; }
+.steps { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 8px; }
+.steps .line span { min-width: 0; }
 /* details */
 .group > .inside > button, .goal > button { justify-self: start; }
 .goal .field .row, .field .row { flex-wrap: nowrap; }

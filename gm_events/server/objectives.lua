@@ -52,6 +52,13 @@ local function raise(run, phase, extra)
     for k, v in pairs(extra or {}) do payload[k] = v end
     local ok, why = TriggerEvent("gm_events:objectives", payload)
     if not ok then print("[gm] gm_events:objectives not raised: " .. tostring(why)) end
+    local moment = ({ started = "objectivesStarted", entered = "playerJoined", left = "playerLeft", objective = "objectiveDone",
+        completed = "objectivesCompleted", failed = "objectivesFailed" })[phase]
+    if moment then
+        local copy = { position = { x = run.anchor.x, y = run.anchor.y, z = run.anchor.z, bucket = run.anchor.bucket } }
+        for k, v in pairs(payload) do if k ~= "seq" then copy[k] = v end end
+        GM.moment(moment, copy)
+    end
 end
 
 -- ------------------------------------------------------------------- enemies

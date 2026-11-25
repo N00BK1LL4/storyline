@@ -1,12 +1,13 @@
 -- gm_events: staff-run world events, bosses and cinematic scenes.
 resource "gm_events"
-version "0.15.0"
+version "0.16.0"
 auto_start true
 dependency "open77_notifications"
 
 server_script "server/config.lua"
 server_script "server/settings.lua"
 server_script "server/announce.lua"
+server_script "server/moments.lua"
 server_script "server/main.lua"
 server_script "server/bosshud.lua"
 server_script "server/chimera.lua"

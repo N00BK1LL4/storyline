@@ -5,6 +5,7 @@
 --   gm_events.edit     create, change or delete presets (not part of command.gm.*)
 local core = GM.core
 local EDIT = "gm_events.edit"
+local SETTINGS = "gm_events.owner" -- hooks and the mod's settings, for the server owner; not part of command.gm.*
 local LOOT = "gm_events.loot" -- spawn things that give loot; also not part of command.gm.*
 local MAX_PRESETS, MAX_STATUS = 30, 300 -- per kind; keeps each message small
 
@@ -421,6 +422,27 @@ local function sendState(playerId)
     for id in pairs(GM.scenes) do scenes[#scenes + 1] = id end
     table.sort(scenes)
     -- One message per part: the page merges them.
+    do -- everyone with the panel may read them; only the owner may change them
+        local settings = {}
+        for key, def in pairs(GM.settingDefs) do
+            if def.group ~= "Messages" and def.group ~= "Announcements" and def.group ~= "Loot" then
+                settings[#settings + 1] = {
+                    key = key, label = def.label, text = def.description, type = def.type, group = def.group, order = def.order,
+                    min = def.min, max = def.max, step = def.step, unit = def.unit, choices = def.choices, value = GM.setting(key),
+                }
+            end
+        end
+        table.sort(settings, function(a, b)
+            if a.group ~= b.group then return a.group < b.group end
+            if a.order ~= b.order then return a.order < b.order end
+            return a.key < b.key
+        end)
+        send(playerId, "gm_events:panel:state", { part = "settings", settings = settings })
+        send(playerId, "gm_events:panel:state", {
+            part = "connect", moments = GM.moments, hooks = GM.hookRows(), lootProviders = GM.lootProviders(), hookProviders = GM.hookProviders(),
+        })
+    end
+    send(playerId, "gm_events:panel:state", { part = "rights", canSettings = allowed(playerId, SETTINGS), setupFinished = GM.setupFinished() })
     local hookTypes, hookChecks = GM.hookList()
     send(playerId, "gm_events:panel:state", { part = "hooks", hookTypes = hookTypes, hookChecks = hookChecks })
     send(playerId, "gm_events:panel:state", {
@@ -731,6 +753,9 @@ function ops.spawn(playerId, d)
     if not linked then return false, notLinked end
     local anchor, why = target(playerId, d, spawnDistance(d.kind))
     if not anchor then return false, why end
+    local start = { kind = d.kind, name = def.name, staff = playerId, position = { x = anchor.x, y = anchor.y, z = anchor.z, bucket = anchor.bucket } }
+    local may, refused = GM.askStart(start)
+    if not may then return false, refused end
     -- A crash starts its own at impact; a boss or squad starts them with itself.
     local ok, reason = withObjectives(anchor, not lands and def.objectivesDef or nil, function(at, step)
         local done, what = core.actions[d.kind](at, step)
@@ -740,6 +765,7 @@ function ops.spawn(playerId, d)
         end
         return done, what
     end, { def = def })
+    if ok then GM.moment("eventStarted", start) end
     return ok, reason or (def.name .. " started")
 end
 
@@ -802,7 +828,12 @@ function ops.announceSave(playerId, d)
             if (key == "announceResource" or key == "announceExport") and not value:match("^[%w_%-]+$") then
                 return false, key .. ": letters, numbers, _ and - only"
             end
-            if value ~= GM[key] then changes[#changes + 1] = { key, value } end
+            if value ~= GM[key] then
+                if (key == "announceMethod" or key == "announceResource" or key == "announceExport") and not allowed(playerId, SETTINGS) then
+                    return false, "only the server owner can change how players are told"
+                end
+                changes[#changes + 1] = { key, value }
+            end
         end
     end
     for _, change in ipairs(changes) do
@@ -826,9 +857,43 @@ local lootChoices = {
     lootShare = { everyone = true, killer = true },
 }
 
+function ops.setting(playerId, d)
+    if not allowed(playerId, SETTINGS) then return false, "you need " .. SETTINGS end
+    local def = type(d.key) == "string" and GM.settingDefs[d.key] or nil
+    if not def or def.group == "Messages" or def.group == "Announcements" or def.group == "Loot" then return false, "unknown setting" end
+    local value = d.value
+    if def.type == "boolean" then
+        if type(value) ~= "boolean" then return false, "on or off only" end
+    elseif def.type == "enum" then
+        local fits = false
+        for _, c in ipairs(def.choices) do fits = fits or c == value end
+        if not fits then return false, "unknown choice" end
+    elseif def.type == "integer" or def.type == "number" then
+        value = tonumber(value)
+        if not value or value ~= value then return false, "a number is needed" end
+        value = math.max(def.min, math.min(def.max, value))
+        if def.type == "integer" then value = math.floor(value + 0.5) end
+    else
+        return false, "this one cannot be changed here"
+    end
+    local ok, why = Open77.tunables.set(d.key, value)
+    if not ok then return false, "not saved: " .. tostring(why) end
+    print(("[gm] player %d set %s = %s"):format(playerId, d.key, tostring(value)))
+    return true, def.label .. ": " .. tostring(value), true
+end
+
+function ops.hook(playerId, d)
+    if not allowed(playerId, SETTINGS) then return false, "you need " .. SETTINGS end
+    if d.what == "save" then return GM.saveHook(playerId, d) end
+    if d.what == "delete" then return GM.deleteHook(playerId, d.id) end
+    if d.what == "finish" or d.what == "unlock" then return GM.finishSetup(playerId, d.what == "finish") end
+    if d.what == "test" then return GM.testHook(playerId, d.id) end
+    return false, "unknown button"
+end
+
 function ops.lootSave(playerId, d)
     if not allowed(playerId, EDIT) then return false, "you need " .. EDIT end
-    if not allowed(playerId, LOOT) then return false, "you need " .. LOOT end
+    if not allowed(playerId, SETTINGS) then return false, "only the server owner can change how loot is given" end
     local v = type(d.values) == "table" and d.values or {}
     for key, choices in pairs(lootChoices) do
         if v[key] ~= nil and not choices[v[key]] then return false, key .. ": unknown choice" end
@@ -884,6 +949,10 @@ function ops.chimera(playerId, d)
     if not linked then return false, notLinked end
     local anchor, why = target(playerId, d, GM.chimera.distance)
     if not anchor then return false, why end
+    local start = { kind = "chimera", name = name, staff = playerId, position = { x = anchor.x, y = anchor.y, z = anchor.z, bucket = anchor.bucket } }
+    local may, refused = GM.askStart(start)
+    if not may then return false, refused end
+    GM.moment("eventStarted", start)
     return withObjectives(anchor, link.objectivesDef, core.actions.chimera, { def = {
         name = name, health = number(d.def.health, 0.1, 100, 2), damage = number(d.def.damage, 0, 5, 0.8),
         scaling = d.def.scaling ~= false, lootDef = link.lootDef,

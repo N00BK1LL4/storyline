@@ -24,7 +24,7 @@
     if (bridge) bridge.emit("gm:error", { text: String(e.message).slice(0, 300) + " @" + e.lineno });
   });
 
-  var state = { boss: [], squad: [], av: [], fall: [], fallModels: [], drop: [], interact: [], interactModels: [], hookTypes: [], hookChecks: [], cast: [], castPoses: [], castBarks: [], objectives: [], loot: [], lootItems: [], scenes: [], avModels: [], status: {}, maxSquad: 20, canEdit: false };
+  var state = { boss: [], squad: [], av: [], fall: [], fallModels: [], drop: [], interact: [], interactModels: [], hookTypes: [], hookChecks: [], settings: [], hooks: [], moments: [], lootProviders: [], hookProviders: [], canSettings: false, setupFinished: null, cast: [], castPoses: [], castBarks: [], objectives: [], loot: [], lootItems: [], scenes: [], avModels: [], status: {}, maxSquad: 20, canEdit: false };
   var live = { bosses: [], players: [], hostiles: 0, ghost: false, mark: false };
   var drafts = { boss: null, squad: null, av: null, fall: null, drop: null, interact: null, cast: null, objectives: null, loot: null };
   var req = 0;
@@ -262,6 +262,154 @@
       call("cast", { id: who.id, what: b.dataset.cast, pose: $("castPose").value, run: $("castRun").checked });
     });
   });
+
+  /* settings: hooks, what is connected, and the mod's own settings */
+  var setPage = "hooks", newHook = null, askedSetup = false;
+  function setInside(title) {
+    var g = el("div", "group open"), inside = el("div", "inside");
+    g.appendChild(el("div", "head", title));
+    g.appendChild(inside);
+    $("setBody").appendChild(g);
+    return inside;
+  }
+  function hooksOpen() { return state.canSettings && !state.setupFinished; }
+  function hookRow(h, fresh) {
+    var row = el("div", "hook"), d = { id: h.id, moment: h.moment, resource: h.resource, export: h.export, on: h.on };
+    var moment = choice(d, "moment", arr(state.moments).map(function (m) { return [m.id, m.label]; }));
+    var res = textInput(d, "resource", 64), fn = textInput(d, "export", 64), buttons = el("div", "row");
+    res.placeholder = "Resource"; fn.placeholder = "Function";
+    moment.setAttribute("aria-label", "Moment"); res.setAttribute("aria-label", "Resource"); fn.setAttribute("aria-label", "Function");
+    buttons.appendChild(btn(fresh ? "Add" : "Save", "main", function () {
+      if (fresh) newHook = null;
+      call("hook", { what: "save", id: d.id, moment: d.moment, resource: d.resource.trim(), export: d.export.trim(), on: d.on });
+    }));
+    if (!fresh) {
+      buttons.appendChild(btn(h.on ? "Turn off" : "Turn on", "", function () {
+        call("hook", { what: "save", id: h.id, moment: h.moment, resource: h.resource, export: h.export, on: !h.on });
+      }));
+      buttons.appendChild(btn("Test", "", function () {
+        confirmThen("Call " + h.resource + ":" + h.export + " now with sample data marked test = true?", function () { call("hook", { what: "test", id: h.id }); });
+      }));
+      buttons.appendChild(btn("Delete", "danger", function () {
+        confirmThen("Delete this hook?", function () { call("hook", { what: "delete", id: h.id }); });
+      }));
+    }
+    [moment, res, fn, buttons].forEach(function (n) { row.appendChild(n); });
+    if (!hooksOpen()) {
+      row.classList.add("off");
+      [moment, res, fn].forEach(function (n) { n.disabled = true; });
+      Array.prototype.forEach.call(buttons.children, function (b) { b.disabled = !(state.canSettings && b.textContent === "Test"); });
+    }
+    if (!fresh) {
+      var text = !h.on ? "Off" : !h.running ? h.resource + " is not running" : "Last call: " + h.last;
+      row.appendChild(el("div", "said" + (!h.on ? "" : !h.running || h.ok === false ? " bad" : h.ok ? " ok" : ""), text));
+    }
+    return row;
+  }
+  function renderSettings() {
+    // how players are told and how loot is given are the owner's too
+    all('[data-set="announceMethod"], [data-set="announceResource"], [data-set="announceExport"], [data-loot], #lootSave').forEach(function (n) { n.disabled = !state.canSettings; });
+    $("lootOwner").style.display = state.canSettings ? "none" : "";
+    var tab = document.querySelector('[data-tab="settings"]');
+    var first = state.canSettings && state.setupFinished === false;
+    tab.querySelector(".count").textContent = first ? "Set up" : arr(state.hooks).length || "";
+    if (first && !askedSetup && state.moments.length) { // the owner's first time: start here, once
+      askedSetup = true;
+      tab.click();
+    }
+    var body = $("setBody"), at = document.activeElement;
+    if (at && body.contains(at) && /^(INPUT|SELECT)$/.test(at.tagName) && at.type !== "checkbox") return; // somebody is typing
+    var groups = [];
+    arr(state.settings).forEach(function (s) { if (groups.indexOf(s.group) < 0) groups.push(s.group); });
+    var nav = $("setNav"), pages = [["hooks", "Hooks"], ["connected", "Connected resources"]].concat(groups.map(function (g) { return ["g:" + g, g]; }));
+    nav.textContent = "";
+    pages.forEach(function (p, i) {
+      if (i === 0) nav.appendChild(el("div", "folder", "Integration"));
+      if (i === 2) nav.appendChild(el("div", "folder", "This mod"));
+      nav.appendChild(btn(p[1], "item" + (setPage === p[0] ? " on" : ""), function () { setPage = p[0]; body.scrollTop = 0; renderSettings(); }));
+    });
+    var top = body.scrollTop;
+    body.textContent = "";
+    if (!state.canSettings) {
+      var only = el("div", "notice");
+      only.appendChild(el("p", "", "Only the server owner can change these. You can look."));
+      body.appendChild(only);
+    } else if (setPage === "hooks" && state.setupFinished) {
+      var locked = el("div", "notice");
+      locked.appendChild(el("p", "", "Setup is finished and the hooks are locked."));
+      locked.appendChild(btn("Unlock", "", function () {
+        confirmThen("Unlock the hooks? Remember to finish setup again afterwards.", function () { call("hook", { what: "unlock" }); });
+      }));
+      body.appendChild(locked);
+    } else if (setPage === "hooks") {
+      var setup = setInside("First setup"), steps = el("div", "steps");
+      [["Choose how players are told about events", "announce", null], ["Choose how loot is given", "loot", null],
+        ["Choose who shows objectives", "settings", "g:Objectives"], ["Choose who shows interaction prompts", "settings", "g:Interactables"],
+        ["See what your resources have connected", "settings", "connected"]].forEach(function (s) {
+        var line = el("div", "line");
+        line.appendChild(el("span", "", s[0]));
+        line.appendChild(btn("Open", "", function () {
+          if (s[2]) { setPage = s[2]; renderSettings(); } else document.querySelector('[data-tab="' + s[1] + '"]').click();
+        }));
+        steps.appendChild(line);
+      });
+      steps.appendChild(el("p", "dim", "Add your hooks below. Everything here is optional; the mod works without any of it."));
+      setup.appendChild(steps);
+      setup.appendChild(btn("Finish setup", "main", function () {
+        confirmThen("Finish setup? The hooks are locked until you unlock them.", function () { newHook = null; call("hook", { what: "finish" }); });
+      }));
+    }
+    if (setPage === "hooks") {
+      var box = setInside("When something happens, call a server script");
+      var list = el("div");
+      arr(state.hooks).forEach(function (h) { list.appendChild(hookRow(h, false)); });
+      if (newHook) list.appendChild(hookRow(newHook, true));
+      if (!arr(state.hooks).length && !newHook) list.appendChild(el("p", "dim", "No hooks yet. Add one to connect your own system."));
+      box.appendChild(list);
+      var add = btn("Add hook", "", function () { newHook = { moment: "eventStarted", resource: "", export: "", on: true }; renderSettings(); });
+      add.disabled = !!newHook || !hooksOpen();
+      box.appendChild(add);
+      var help = setInside("What your function gets");
+      help.appendChild(el("p", "dim", "One table with moment, and what is known: name, kind, playerId, players, position, staff. In your resource:"));
+      help.appendChild(el("code", "", 'exports("onEvent", function(e)\n    print(e.moment, e.name, e.playerId)\n    return true\nend)'));
+      help.appendChild(el("p", "dim", "Only \"Before an event starts\" cares about the answer: anything but true refuses the event, and a second value says why. If that function is missing or too slow, the event is refused too."));
+    } else if (setPage === "connected") {
+      var items = setInside("Loot items");
+      arr(state.lootProviders).forEach(function (p) { items.appendChild(el("p", "", p.resource + ": " + p.items + " items")); });
+      if (!arr(state.lootProviders).length) items.appendChild(el("p", "dim", "No resource has registered items. Staff type item names by hand."));
+      var own = setInside("Objective types and interaction checks");
+      arr(state.hookProviders).forEach(function (p) { own.appendChild(el("p", "", p.resource + ": " + p.label + " (" + p.what.toLowerCase() + ")")); });
+      if (!arr(state.hookProviders).length) own.appendChild(el("p", "dim", "None registered. The examples folder of this mod shows how."));
+      var where = setInside("Where the rest is");
+      where.appendChild(el("p", "dim", "How loot is given is in the Loot tab. How players are told is in Announcements. Who shows objectives and prompts is under Objectives and Interactables here."));
+    } else {
+      var group = setPage.slice(2), inside = setInside(group);
+      arr(state.settings).filter(function (s) { return s.group === group; }).forEach(function (s) {
+        var row = el("div", "setting"), text = el("div"), control = el("div", "control"), d = { v: s.value }, input;
+        text.appendChild(el("div", "", s.label));
+        text.appendChild(el("div", "dim", s.text));
+        var send = function (v) { call("setting", { key: s.key, value: v }); };
+        if (s.type === "boolean") {
+          input = el("input"); input.type = "checkbox"; input.checked = s.value === true;
+          input.addEventListener("change", function () { send(input.checked); });
+        } else if (s.type === "enum") {
+          input = choice(d, "v", arr(s.choices).map(function (c) { return [c, c]; }));
+          input.addEventListener("change", function () { send(input.value); input.blur(); });
+        } else {
+          input = numberInput(d, "v", s.min, s.max, s.step || 1);
+          input.addEventListener("change", function () { send(d.v); });
+        }
+        input.setAttribute("aria-label", s.label);
+        if (!state.canSettings) { input.disabled = true; row.classList.add("off"); }
+        control.appendChild(input);
+        if (s.unit) control.appendChild(el("span", "dim", s.unit));
+        row.appendChild(text);
+        row.appendChild(control);
+        inside.appendChild(row);
+      });
+    }
+    body.scrollTop = top;
+  }
 
   /* loot settings */
   var lootDirty = false;
@@ -1025,6 +1173,7 @@
     if (!state.chimera && tab.classList.contains("on")) document.querySelector('[data-tab="live"]').click();
     ["boss", "squad", "av", "fall", "drop", "interact", "cast", "objectives", "loot"].forEach(refreshKind);
     renderLootSettings();
+    renderSettings();
     [["chObjectives", "objectives", "No objectives", "objectives"], ["chLoot", "loot", "No loot", "loot table"]].forEach(function (c) {
       var select = $(c[0]), chosen = select.value;
       select.textContent = "";
