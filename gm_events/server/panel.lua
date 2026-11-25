@@ -178,7 +178,7 @@ function clean.fall(d)
         spin = number(d.spin, -720, 720, 120), intact = d.intact == true or nil,
         blastRadius = number(d.blastRadius, 3, 40, 14), blastDamage = number(d.blastDamage, 0, 500, 0),
         fireSeconds = number(d.fireSeconds, 0, 300, 60),
-        crater = number(d.crater, 0, 12, 5), sink = number(d.sink, 0, 3, 0.4),
+        crater = number(d.crater, 0, 12, 5), sink = number(d.sink, 0, 3, 0.4), rim = number(d.rim, 0.3, 3, 1),
         debris = math.floor(number(d.debris, 0, 12, 0)), debrisRadius = number(d.debrisRadius, 8, 60, 30),
         squadId = presetId(d.squadId), bossId = presetId(d.bossId), objectivesId = presetId(d.objectivesId),
         spawnDelay = number(d.spawnDelay, 0, 60, 3), warningLead = number(d.warningLead, 0, 60, 6),
@@ -228,17 +228,17 @@ local function listOf(kind)
     end
     if kind == "fall" then
         list[#list + 1] = {
-            id = "builtin:wreck", builtin = true, name = "Burning wreck", record = "Vehicle.q306_orbital_capsule", crater = 6, sink = 0,
+            id = "builtin:wreck", builtin = true, name = "Burning wreck", record = "Vehicle.q306_orbital_capsule", crater = 6, sink = 1, rim = 1,
             distance = 60, height = 160, flightSeconds = 5, direction = 0, spin = 120, blastRadius = 14, blastDamage = 0,
             fireSeconds = 60, debris = 6, debrisRadius = 30,
         }
         list[#list + 1] = {
-            id = "builtin:capsule", builtin = true, name = "Orbital capsule", record = "Vehicle.q306_orbital_capsule", crater = 5, sink = 0.4,
+            id = "builtin:capsule", builtin = true, name = "Orbital capsule", record = "Vehicle.q306_orbital_capsule", crater = 5, sink = 0.4, rim = 1,
             distance = 60, height = 160, flightSeconds = 6, direction = 0, spin = 0, intact = true, blastRadius = 8,
             blastDamage = 0, fireSeconds = 20, debris = 0, debrisRadius = 30,
         }
         list[#list + 1] = {
-            id = "builtin:crate", builtin = true, name = "Supply drop", record = "Vehicle.sa_ep1_airdrop_crate", crater = 0, sink = 0,
+            id = "builtin:crate", builtin = true, name = "Supply drop", record = "Vehicle.sa_ep1_airdrop_crate", crater = 0, sink = 0.6, rim = 1,
             distance = 0, height = 120, flightSeconds = 7, direction = 0, spin = 0, intact = true, blastRadius = 4,
             blastDamage = 0, fireSeconds = 0, debris = 0, debrisRadius = 30,
         }

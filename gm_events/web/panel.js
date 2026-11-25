@@ -321,7 +321,7 @@
     fall: function () {
       var first = arr(state.fallModels)[0];
       return { name: "", record: first ? first.record : "", distance: 60, height: 160, flightSeconds: 5, direction: 0, spin: 120,
-        blastRadius: 14, blastDamage: 0, fireSeconds: 60, crater: 5, sink: 0.4, debris: 5, debrisRadius: 30 };
+        blastRadius: 14, blastDamage: 0, fireSeconds: 60, crater: 5, sink: 0.4, rim: 1, debris: 5, debrisRadius: 30 };
     },
     objectives: function () { return { name: "", radius: 60, items: [newGoal("enemies")], ordered: true, timeLimit: 0 }; },
     loot: function () { return { name: "", entries: [{ item: "", min: 1, max: 1, chance: 100 }] }; }
@@ -581,13 +581,14 @@
       pickAv.addEventListener("change", redraw);
       box.appendChild(field(falls ? "What falls" : "AV", pickAv));
       if (state.canEdit) box.appendChild(field("Note for all staff", noteButtons(d.record)));
+      if (falls && d.rim === undefined) d.rim = 1;
       (falls ? [["distance", "Comes in from, m", 0, 150, 5], ["height", "Start height, m", 40, 250, 10],
         ["flightSeconds", "Fall time, s", 2, 15, 0.5], ["spin", "Spin, degrees", -720, 720, 30]] :
         [["distance", "Start distance, m", 40, 200, 5], ["height", "Start height, m", 20, 150, 5],
         ["flightSeconds", "Flight time, s", 2, 15, 0.5]]).concat([["direction", "Approach angle, degrees", -180, 180, 15],
         ["blastRadius", "Blast radius, m", 3, 40, 1], ["blastDamage", "Blast damage", 0, 500, 10],
         ["fireSeconds", "Fire, s", 0, 300, 10]],
-        falls ? [["crater", "Crater size, m", 0, 12, 1], ["sink", "Sunk into the ground, m", 0, 3, 0.1], ["debris", "Smaller pieces", 0, 12, 1], ["debrisRadius", "Pieces land within, m", 8, 60, 2]] : []).forEach(function (f) {
+        falls ? [["crater", "Crater size, m", 0, 12, 1], ["rim", "Rim height, x", 0.3, 3, 0.1], ["sink", "Sunk into the ground, m", 0, 3, 0.1], ["debris", "Smaller pieces", 0, 12, 1], ["debrisRadius", "Pieces land within, m", 8, 60, 2]] : []).forEach(function (f) {
         box.appendChild(field(f[1], numberInput(d, f[0], f[2], f[3], f[4])));
       });
       if (falls) box.appendChild(field("Stays in one piece", tickBox(d, "intact")));

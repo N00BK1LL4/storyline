@@ -1,6 +1,6 @@
 -- gm_events: staff-run world events, bosses and cinematic scenes.
 resource "gm_events"
-version "0.10.2"
+version "0.10.3"
 auto_start true
 dependency "open77_notifications"
 

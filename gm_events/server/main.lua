@@ -693,7 +693,7 @@ function actions.av(anchor, step)
         local function report(what, ok, why)
             if not ok then reply(anchor.source, nil, false, what .. ": " .. tostring(why)) end
         end
-        local rim = c.fall and c.crater or 0
+        local rim = c.fall and (c.crater or 0) > 0 and c.crater + 2 or 0
         if c.squadDef and rim > 0 then -- outside the rim, not inside its earth
             c.squadDef.pattern, c.squadDef.radius = "ring", math.max(c.squadDef.radius, rim + 5)
         end
@@ -730,20 +730,27 @@ function actions.crater(anchor, c)
         })
         if id then props[id] = true else problem = why end
     end
-    local count = math.max(9, math.floor(2 * math.pi * size / 2.2))
-    local each = 2 * math.pi * size / count / 1.7
+    -- Two overlapping rings: a high inner lip and a lower slope outside it.
+    local high = c.rim or 1
+    local count = math.max(10, math.floor(2 * math.pi * size / 2.0))
+    local each = 2 * math.pi * size / count
     for k = 1, count do
         if k % math.max(3, count // 3) ~= 0 then -- three ways in
             local turn = k / count * 2 * math.pi
-            local s = each * (0.9 + math.random() * 0.35)
-            put("debris.sand_pile", turn, size * (0.95 + math.random() * 0.1),
-                { x = s, y = s, z = s * (0.4 + math.random() * 0.2) }, -0.15, math.deg(turn) + 90)
+            local s = each * (1.05 + math.random() * 0.3)
+            put("debris.sand_pile", turn, size * (0.97 + math.random() * 0.06),
+                { x = s, y = s, z = s * high * (0.75 + math.random() * 0.3) }, -0.1, math.deg(turn) + 90)
+            local outer = turn + math.pi / count
+            if (k + 1) % math.max(3, count // 3) ~= 0 then
+                put("debris.sand_pile", outer, size + each * 0.75,
+                    { x = s * 1.1, y = s * 1.1, z = s * high * (0.45 + math.random() * 0.2) }, -0.15, math.deg(outer) + 90)
+            end
         end
     end
     local rubble = { "debris.pile", "debris.rebar", "debris.construction_pile", "debris.corrugated_sheet" }
     for k = 1, math.min(8, 3 + math.floor(size / 2)) do
         local s = 0.35 + math.random() * 0.35
-        put(rubble[(k - 1) % #rubble + 1], math.random() * 2 * math.pi, size * (1.25 + math.random() * 0.7),
+        put(rubble[(k - 1) % #rubble + 1], math.random() * 2 * math.pi, size * (1.45 + math.random() * 0.7),
             { x = s, y = s, z = s }, -0.1)
     end
     if problem then reply(anchor.source, nil, false, "part of the crater was refused: " .. tostring(problem)) end
