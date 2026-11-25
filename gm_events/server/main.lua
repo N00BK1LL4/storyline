@@ -638,7 +638,7 @@ function actions.av(anchor, step)
         out()
         if body.exists() then
             if c.fall and c.intact then
-                body.move(anchor, yaw)
+                body.move({ x = anchor.x, y = anchor.y, z = anchor.z - (c.sink or 0) }, yaw)
             else
                 body.destroy()
             end
@@ -650,7 +650,8 @@ function actions.av(anchor, step)
                 Open77.effects.explosion({ x = anchor.x + math.cos(turn) * 4, y = anchor.y + math.sin(turn) * 4, z = anchor.z },
                     { radius = 4, damage = 0, bucket = anchor.bucket })
             end
-            if not c.intact and GetResourceState("open77_props") == "running" then
+            if (c.crater or 0) > 0 then actions.crater(anchor, c) end
+            if not c.intact and c.parts and GetResourceState("open77_props") == "running" then
                 local wreck, whyNot = Open77.props.create({
                     model = "debris.pile", position = point(anchor), yaw = yaw, bucket = anchor.bucket, collision = false,
                     scale = { x = 2, y = 2, z = 2 }, streamingRadius = 250, ttlMs = 15 * 60 * 1000,
@@ -692,10 +693,14 @@ function actions.av(anchor, step)
         local function report(what, ok, why)
             if not ok then reply(anchor.source, nil, false, what .. ": " .. tostring(why)) end
         end
+        local rim = c.fall and c.crater or 0
+        if c.squadDef and rim > 0 then -- outside the rim, not inside its earth
+            c.squadDef.pattern, c.squadDef.radius = "ring", math.max(c.squadDef.radius, rim + 5)
+        end
         if c.squadDef then report("crash squad", actions.squad(site, { def = c.squadDef })) end
         if c.bossDef or c.withChimera then
             -- clear of the wreck, on the side the staff member was facing from
-            local a, d = math.rad(anchor.heading), c.withChimera and 14 or 8
+            local a, d = math.rad(anchor.heading), math.max(c.withChimera and 14 or 8, rim + 6)
             local beside = {
                 x = anchor.x + math.sin(a) * d, y = anchor.y - math.cos(a) * d, z = anchor.z,
                 heading = anchor.heading, bucket = anchor.bucket, source = anchor.source, event = run,
@@ -705,6 +710,51 @@ function actions.av(anchor, step)
         end
         if run then GM.objectivesReady(run) end
     end)
+    return true
+end
+
+-- The ground cannot be dug, so a crater is a rim of earth with rubble thrown out of it
+-- and smoke and embers inside. Openings in the rim let players and enemies through.
+function actions.crater(anchor, c)
+    if GetResourceState("open77_props") ~= "running" then
+        reply(anchor.source, nil, false, "no crater: it needs the open77_props resource")
+        return false
+    end
+    local size, life = c.crater, (c.intact and 60 or 15) * 60 * 1000
+    local problem
+    local function put(model, turn, r, scale, up, yaw)
+        local id, why = Open77.props.create({
+            model = model, bucket = anchor.bucket, yaw = yaw or math.random(0, 359), collision = false, scale = scale,
+            position = { x = anchor.x + math.cos(turn) * r, y = anchor.y + math.sin(turn) * r, z = anchor.z + up },
+            streamingRadius = 220, ttlMs = life,
+        })
+        if id then props[id] = true else problem = why end
+    end
+    local count = math.max(9, math.floor(2 * math.pi * size / 2.2))
+    local each = 2 * math.pi * size / count / 1.7
+    for k = 1, count do
+        if k % math.max(3, count // 3) ~= 0 then -- three ways in
+            local turn = k / count * 2 * math.pi
+            local s = each * (0.9 + math.random() * 0.35)
+            put("debris.sand_pile", turn, size * (0.95 + math.random() * 0.1),
+                { x = s, y = s, z = s * (0.4 + math.random() * 0.2) }, -0.15, math.deg(turn) + 90)
+        end
+    end
+    local rubble = { "debris.pile", "debris.rebar", "debris.construction_pile", "debris.corrugated_sheet" }
+    for k = 1, math.min(8, 3 + math.floor(size / 2)) do
+        local s = 0.35 + math.random() * 0.35
+        put(rubble[(k - 1) % #rubble + 1], math.random() * 2 * math.pi, size * (1.25 + math.random() * 0.7),
+            { x = s, y = s, z = s }, -0.1)
+    end
+    if problem then reply(anchor.source, nil, false, "part of the crater was refused: " .. tostring(problem)) end
+    -- it smokes for a while and goes out by itself
+    GM.burst("smoke.machine", point(anchor), anchor.bucket, 90, 300)
+    GM.burst("smoke.steam", { x = anchor.x, y = anchor.y, z = anchor.z + 0.5 }, anchor.bucket, 120, 200)
+    for _ = 1, math.max(3, math.floor(size)) do
+        local turn, r = math.random() * 2 * math.pi, math.sqrt(math.random()) * size * 0.8
+        GM.burst("fire.tiny", { x = anchor.x + math.cos(turn) * r, y = anchor.y + math.sin(turn) * r, z = anchor.z + 0.05 },
+            anchor.bucket, 40 + math.random(0, 40))
+    end
     return true
 end
 
@@ -738,7 +788,7 @@ function actions.fall(anchor, step)
     if not def then
         local first = GM.fallModels[1]
         def = { name = first.name, record = first.record, parts = first.parts, distance = 60, height = 160, flightSeconds = 5, direction = 0,
-            blastRadius = 14, fireSeconds = 60, debris = 5, debrisRadius = 30, spin = 120 }
+            blastRadius = 14, fireSeconds = 60, debris = 5, debrisRadius = 30, spin = 120, crater = 5, sink = 0.4 }
     end
     def.fall = true
     for _, body in ipairs(GM.fallModels) do

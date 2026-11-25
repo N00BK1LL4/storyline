@@ -321,7 +321,7 @@
     fall: function () {
       var first = arr(state.fallModels)[0];
       return { name: "", record: first ? first.record : "", distance: 60, height: 160, flightSeconds: 5, direction: 0, spin: 120,
-        blastRadius: 14, blastDamage: 0, fireSeconds: 60, debris: 5, debrisRadius: 30 };
+        blastRadius: 14, blastDamage: 0, fireSeconds: 60, crater: 5, sink: 0.4, debris: 5, debrisRadius: 30 };
     },
     objectives: function () { return { name: "", radius: 60, items: [newGoal("enemies")], ordered: true, timeLimit: 0 }; },
     loot: function () { return { name: "", entries: [{ item: "", min: 1, max: 1, chance: 100 }] }; }
@@ -587,11 +587,11 @@
         ["flightSeconds", "Flight time, s", 2, 15, 0.5]]).concat([["direction", "Approach angle, degrees", -180, 180, 15],
         ["blastRadius", "Blast radius, m", 3, 40, 1], ["blastDamage", "Blast damage", 0, 500, 10],
         ["fireSeconds", "Fire, s", 0, 300, 10]],
-        falls ? [["debris", "Smaller pieces", 0, 12, 1], ["debrisRadius", "Pieces land within, m", 8, 60, 2]] : []).forEach(function (f) {
+        falls ? [["crater", "Crater size, m", 0, 12, 1], ["sink", "Sunk into the ground, m", 0, 3, 0.1], ["debris", "Smaller pieces", 0, 12, 1], ["debrisRadius", "Pieces land within, m", 8, 60, 2]] : []).forEach(function (f) {
         box.appendChild(field(f[1], numberInput(d, f[0], f[2], f[3], f[4])));
       });
       if (falls) box.appendChild(field("Stays in one piece", tickBox(d, "intact")));
-      box.appendChild(el("p", "dim", (falls ? "Untick to make it explode on impact. Smaller pieces never hurt players. " : "") + "Angle 0 comes from your left. Blast damage above 0 hurts players in the radius."));
+      box.appendChild(el("p", "dim", (falls ? "Untick to make it explode on impact. Crater 0 means none; craters need open77_props. Smaller pieces never hurt players. " : "") + "Angle 0 comes from your left. Blast damage above 0 hurts players in the radius."));
 
       box.appendChild(el("h2", "", "Who comes with it"));
       d.squadId = d.squadId || "";

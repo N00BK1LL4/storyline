@@ -36,8 +36,8 @@ your saved presets, so editing a squad changes every crash that uses it.
 
 ## Falling objects
 
-The **Falling** tab drops a satellite, cargo container, orbital capsule, escape pod, airdrop
-crate or rocket from the sky (the first two need `open77_props`), with a fire trail, an optional warning and camera shot, smaller pieces
+The **Falling** tab drops an orbital capsule, escape pod, airdrop crate, rocket or cargo container
+from the sky (the container and the craters need `open77_props`), with a fire trail, an optional warning and camera shot, smaller pieces
 landing around it, and the same squads, bosses and objectives a crash can bring.
 Starting one needs `command.gm.fall`, which `command.gm.*` includes.
 
