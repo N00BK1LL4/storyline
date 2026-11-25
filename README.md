@@ -57,7 +57,7 @@ Back up `resources/gm_events/data` first, since your presets live there. To upda
 |---|---|
 | `gm_events` | The mod |
 | `gm_chimera` | The Chimera boss, changed from OPEN//77's MIT `open77_chimera` |
-| `docs` | Tester guide, Workshop text, to-do list, set-aside experiments |
+| `docs` | Tester guide |
 | `tests` | Server tests with simulated players |
 | `tools` | How the soldier list was made |
 

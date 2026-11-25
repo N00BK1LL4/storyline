@@ -5,3 +5,6 @@ __pycache__/
 server.jsonc
 acl.jsonc
 *.key
+docs/TODO.md
+docs/WORKSHOP-LISTING.md
+docs/experiments/
