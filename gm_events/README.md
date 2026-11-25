@@ -21,6 +21,12 @@ mode, all from one in-game panel.
 4. Join, press **Home** (or run `gm.panel`), then run `gm.check` once. It lists
    anything that still needs attention.
 
+## The panel
+
+**World Events** holds enemies and arrivals; **Custom Scenes** holds characters, bookmarks,
+objectives and interactables. Live, Loot and Announcements belong to both. Presets can be
+searched, duplicated and put in folders.
+
 ## Settings
 
 Everything an owner tunes is in Warden's **Tuning** tab under `gm_events`:

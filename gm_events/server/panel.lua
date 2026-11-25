@@ -256,6 +256,15 @@ function clean.cast(d)
     return { name = name, record = record, pose = poses[d.pose or ""] and d.pose or "", mortal = d.mortal == true or nil, lines = lines }
 end
 
+-- Every preset may sit in a folder, which only the panel's lists use.
+for kind, check in pairs(clean) do
+    clean[kind] = function(d)
+        local def, bad = check(d)
+        if def then def.folder = text(d.folder, 24) end
+        return def, bad
+    end
+end
+
 -- ------------------------------------------------------------------- presets
 
 local presets = { boss = {}, squad = {}, av = {}, fall = {}, drop = {}, interact = {}, cast = {}, objectives = {}, loot = {} } -- kind -> id -> def

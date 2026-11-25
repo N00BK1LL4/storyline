@@ -127,9 +127,30 @@
   all("#tabs button").forEach(function (b) {
     b.addEventListener("click", function () {
       all("#tabs button").forEach(function (o) { o.classList.toggle("on", o === b); });
+      $("title").textContent = b.firstElementChild.textContent;
       all("section").forEach(function (s) { s.classList.toggle("on", s.dataset.view === b.dataset.tab); });
     });
   });
+
+  // World Events and Custom Scenes show their own tools; Live, Loot and Announcements belong to both.
+  var lastIn = { world: "boss", scene: "cast" };
+  function area(name) {
+    all("[data-go]").forEach(function (b) { b.setAttribute("aria-selected", b.dataset.go === name ? "true" : "false"); });
+    all("#tabs [data-area]").forEach(function (g) { g.style.display = g.dataset.area === "both" || g.dataset.area === name ? "" : "none"; });
+  }
+  all("[data-go]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      area(b.dataset.go);
+      var now = document.querySelector("#tabs button.on");
+      if (now && now.closest("[data-area]").dataset.area === "both" && now.dataset.tab !== "live") return;
+      document.querySelector('[data-tab="' + lastIn[b.dataset.go] + '"]').click();
+    });
+  });
+  all("#tabs button").forEach(function (b) {
+    var a = b.closest("[data-area]").dataset.area;
+    b.addEventListener("click", function () { if (a !== "both") { lastIn[a] = b.dataset.tab; area(a); } });
+  });
+  area("world");
 
   all("[data-cmd]").forEach(function (b) {
     b.addEventListener("click", function () { call("command", { name: b.dataset.cmd, arg: b.dataset.arg }); });
@@ -300,7 +321,6 @@
     $("ghost").setAttribute("aria-pressed", live.ghost ? "true" : "false");
     var box = $("bosses"), bosses = arr(live.bosses);
     box.textContent = "";
-    if (!bosses.length) box.appendChild(el("p", "dim", "No bosses are active. Spawn one from the Bosses tab."));
     bosses.forEach(function (b) {
       var row = el("div", "bar");
       row.appendChild(el("div", "", b.name + "  " + b.percent + "%  (" + b.players + (b.players === 1 ? " player)" : " players)") + (b.extra ? "  " + b.extra : "")));
@@ -313,14 +333,35 @@
     $("hostiles").textContent = live.hostiles + (live.hostiles === 1 ? " hostile alive" : " hostiles alive");
     renderRuns();
     renderStage();
+    var people = arr(live.cast), peopleBox = $("people"), peopleSign = JSON.stringify(people);
+    if (peopleBox.dataset.sign !== peopleSign) {
+      peopleBox.dataset.sign = peopleSign;
+      peopleBox.textContent = "";
+      people.forEach(function (c) {
+        var row = el("div", "line");
+        row.appendChild(el("span", "", c.name + ", " + c.doing));
+        row.appendChild(btn("Direct", "", function () { document.querySelector('[data-tab="cast"]').click(); $("castWho").value = String(c.id); renderStage(); }));
+        peopleBox.appendChild(row);
+      });
+    }
+    var busy = bosses.length + arr(live.objectives).length + arr(live.interacts).length + people.length;
+    var badge = document.querySelector('[data-tab="live"] .count');
+    badge.textContent = busy || "";
+    badge.classList.toggle("live", busy > 0);
+    var quiet = !busy && !live.hostiles;
+    if (quiet) $("hostiles").textContent = "Nothing is running.";
     var marks = arr(live.bookmarks), bmBox = $("bookmarks"), bmSign = JSON.stringify(marks);
     $("bookmarkBox").style.display = state.canEdit ? "" : "none";
     if (bmBox.dataset.sign !== bmSign) {
       bmBox.dataset.sign = bmSign;
       bmBox.textContent = "";
+      var lastGroup = null;
       marks.forEach(function (b) {
-        var row = el("div", "row");
-        row.appendChild(el("span", "", (b.group ? b.group + ": " : "") + b.name));
+        if (b.group && b.group !== lastGroup) bmBox.appendChild(el("div", "place", b.group));
+        lastGroup = b.group;
+        var row = el("div", "line");
+        row.appendChild(el("span", "", b.name));
+        row.appendChild(btn("Use", "", function () { $("target").value = "b:" + b.id; result("Target: " + b.name, "ok"); }));
         row.appendChild(btn("Delete", "", function () {
           confirmThen("Delete the bookmark \"" + b.name + "\"?", function () { call("bookmark", { delete: b.id }); });
         }));
@@ -332,7 +373,7 @@
       inBox.dataset.sign = sign;
       inBox.textContent = "";
       list.forEach(function (i) {
-        var row = el("div", "row");
+        var row = el("div", "line");
         row.appendChild(el("span", "", i.name + "  " + i.done + "/" + i.total));
         row.appendChild(btn("Remove", "", function () { call("interacts", { id: i.id }); }));
         inBox.appendChild(row);
@@ -444,23 +485,125 @@
     return short(d.record) + (kind === "boss" ? ", " + d.health + "x health" : "");
   }
 
+  var search = {}, shut = {}, opened = {}; // what staff typed, folded and unfolded, per tab
+  function isEdited(kind) {
+    var d = drafts[kind];
+    if (!d) return false;
+    if (!d.id) return true;
+    return JSON.stringify(strip(d)) !== JSON.stringify(strip(original(kind, d.id)));
+  }
+  function choose(kind, d) {
+    drafts[kind] = JSON.parse(JSON.stringify(d));
+    var lists = { squad: "units", objectives: "items", cast: "lines", loot: "entries" };
+    if (lists[kind]) drafts[kind][lists[kind]] = arr(drafts[kind][lists[kind]]);
+    drafts[kind].folder = drafts[kind].folder || "";
+    renderKind(kind);
+  }
+  // Leaving unsaved work behind is asked about, once.
+  function leave(kind, go) {
+    if (!state.canEdit || !isEdited(kind) || (!drafts[kind].id && !drafts[kind].name)) return go();
+    confirmThen("Leave \"" + (drafts[kind].name || "the new preset") + "\" without saving your changes?", go);
+  }
   function renderList(kind) {
     var box = document.querySelector('[data-list="' + kind + '"]');
-    box.textContent = "";
-    if (state.canEdit) box.appendChild(btn("New preset", "item", function () { drafts[kind] = blank[kind](); renderKind(kind); }));
-    arr(state[kind]).forEach(function (d) {
-      var on = drafts[kind] && drafts[kind].id === d.id;
-      var b = btn(d.name + (d.builtin ? "  (built in)" : ""), "item" + (on ? " on" : ""), function () {
-        drafts[kind] = JSON.parse(JSON.stringify(d));
-        if (kind === "squad") drafts[kind].units = arr(drafts[kind].units);
-        if (kind === "objectives") drafts[kind].items = arr(drafts[kind].items);
-        if (kind === "cast") drafts[kind].lines = arr(drafts[kind].lines);
-        if (kind === "loot") drafts[kind].entries = arr(drafts[kind].entries);
-        renderKind(kind);
-      });
-      b.appendChild(el("small", "", summary(kind, d)));
-      box.appendChild(b);
+    if (!box.firstChild) { // built once, so typing in the search box is never interrupted
+      var bar = el("div", "find"), input = el("input");
+      input.type = "text"; input.placeholder = "Find"; input.setAttribute("aria-label", "Find a preset");
+      input.addEventListener("input", function () { search[kind] = input.value.toLowerCase(); fillList(kind); });
+      bar.appendChild(input);
+      bar.appendChild(btn("New", "new", function () { leave(kind, function () { drafts[kind] = blank[kind](); drafts[kind].folder = ""; renderKind(kind); }); }));
+      box.appendChild(bar);
+      box.appendChild(el("div", "items"));
+    }
+    box.querySelector(".new").style.display = state.canEdit ? "" : "none";
+    fillList(kind);
+    var mark = document.querySelector('[data-editor="' + kind + '"] .actions .state');
+    if (mark && drafts[kind]) {
+      var e = isEdited(kind);
+      mark.textContent = e ? (drafts[kind].id ? "Unsaved changes" : "Not saved yet") : drafts[kind].builtin ? "Built in" : "Saved";
+      mark.classList.toggle("edited", e);
+    }
+    var count = document.querySelector('[data-tab="' + kind + '"] .count');
+    var own = arr(state[kind]).filter(function (d) { return !d.builtin; }).length;
+    if (count) count.textContent = own || "";
+  }
+  function fillList(kind) {
+    var items = document.querySelector('[data-list="' + kind + '"] .items'), top = items.scrollTop;
+    items.textContent = "";
+    var words = (search[kind] || "").split(/\s+/).filter(Boolean);
+    var found = arr(state[kind]).filter(function (d) {
+      var text = (d.name + " " + (d.folder || "") + " " + summary(kind, d)).toLowerCase();
+      return words.every(function (w) { return text.indexOf(w) >= 0; });
     });
+    var folders = {}, order = [];
+    found.forEach(function (d) {
+      var f = d.builtin ? "Built in" : d.folder || "Not in a folder";
+      if (!folders[f]) { folders[f] = []; order.push(f); }
+      folders[f].push(d);
+    });
+    var rank = function (f) { return f === "Built in" ? 2 : f === "Not in a folder" ? 1 : 0; };
+    order.sort(function (a, b) { return rank(a) - rank(b) || a.localeCompare(b); });
+    order.forEach(function (f) {
+      var key = kind + "/" + f, closed = shut[key] && !words.length;
+      var b = btn((closed ? "+ " : "- ") + f, "folder", function () { shut[key] = !shut[key]; fillList(kind); });
+      b.appendChild(el("span", "n", folders[f].length));
+      items.appendChild(b);
+      if (closed) return;
+      folders[f].forEach(function (d) {
+        var on = drafts[kind] && drafts[kind].id === d.id;
+        var one = btn("", "item" + (on ? " on" : ""), function () { if (!on) leave(kind, function () { choose(kind, d); }); });
+        one.appendChild(el("span", "", d.name));
+        if (on && isEdited(kind)) one.appendChild(el("span", "edited", "edited"));
+        one.appendChild(el("small", "", summary(kind, d)));
+        items.appendChild(one);
+      });
+    });
+    if (!found.length) items.appendChild(el("p", "dim none", words.length ? "Nothing matches." : "No presets yet."));
+    items.scrollTop = top;
+  }
+
+  // Turn the flat editor into sections that fold, and put its buttons in a bar that stays.
+  var foldedAtFirst = { "Build-up": 1, "Announcements to the whole server": 1, "Ending": 1, "Model note, shared with all staff": 1 };
+  function arrange(kind, box, top) {
+    var kids = Array.prototype.slice.call(box.childNodes), bar = box.querySelector(":scope > .barMark");
+    var scroll = el("div", "scroll"), inside = null;
+    function group(title) {
+      var plain = title.replace(/:.*$/, ""), key = kind + "/" + plain, g = el("div", "group"), head = btn(title, "head", function () {
+        opened[key] = !g.classList.contains("open");
+        g.classList.toggle("open", opened[key]);
+      });
+      var on = opened[key] === undefined ? !foldedAtFirst[plain] : opened[key];
+      g.classList.toggle("open", on);
+      inside = el("div", "inside");
+      g.appendChild(head);
+      g.appendChild(inside);
+      scroll.appendChild(g);
+    }
+    kids.forEach(function (n) {
+      if (n === bar) return;
+      if (n.tagName === "H2") return group(n.textContent);
+      if (!inside) group("Basics");
+      var long = n.querySelector && n.classList.contains("field") && n.querySelector('input[type=text], .record, textarea, button');
+      if (long) n.classList.add("wide");
+      inside.appendChild(n);
+    });
+    box.textContent = "";
+    box.appendChild(scroll);
+    if (bar) {
+      bar.className = "actions";
+      var mark = el("span", "state");
+      bar.appendChild(mark);
+      box.appendChild(bar);
+      var show = function () {
+        var e = isEdited(kind);
+        mark.textContent = e ? (drafts[kind].id ? "Unsaved changes" : "Not saved yet") : drafts[kind].builtin ? "Built in" : "Saved";
+        mark.classList.toggle("edited", e);
+      };
+      show();
+      box.oninput = box.onchange = function () { show(); fillList(kind); };
+      box.onclick = function () { if (drafts[kind]) show(); };
+    }
+    scroll.scrollTop = top;
   }
 
   function field(label, node, extra) {
@@ -635,10 +778,18 @@
   function renderEditor(kind) {
     var box = document.querySelector('[data-editor="' + kind + '"]'), d = drafts[kind];
     var redraw = function () { renderEditor(kind); };
+    var before = box.querySelector(".scroll"), top = before && box.dataset.of === String(d && d.id) ? before.scrollTop : 0;
+    box.dataset.of = String(d && d.id);
     box.textContent = "";
-    if (!d) return box.appendChild(el("p", "dim", "Choose a preset on the left" + (state.canEdit ? ", or create a new one." : ".")));
+    if (!d) return box.appendChild(el("p", "empty", "Choose a preset on the left" + (state.canEdit ? ", or press New to make one." : ".")));
 
     box.appendChild(field("Name", textInput(d, "name", 32)));
+    if (state.canEdit) {
+      var folders = el("input"), known = el("datalist");
+      folders.type = "text"; folders.maxLength = 24; folders.value = d.folder || ""; folders.placeholder = "None";
+      folders.addEventListener("input", function () { d.folder = folders.value; });
+      box.appendChild(field("Folder", folders));
+    }
     if (kind === "boss") {
       box.appendChild(field("Model", modelRow(d, redraw)));
       var guess = el("span", "dim", estimate(d.health));
@@ -651,6 +802,7 @@
       box.appendChild(field("Scale with players", tick));
       objectivesField(box, d);
       lootField(box, d, "Goes to everyone who hurt the boss.");
+      box.appendChild(el("h2", "", "Messages"));
       box.appendChild(field("Arrival message", textInput(d, "intro", 160)));
       box.appendChild(field("Defeat message", textInput(d, "outro", 160)));
       box.appendChild(el("p", "dim", "Leave empty to use the server's usual messages."));
@@ -696,6 +848,7 @@
     } else if (kind === "interact") {
       box.appendChild(field("What players do", textInput(d, "prompt", 40)));
       box.appendChild(field("Looks like", choice(d, "model", arr(state.interactModels).map(function (m) { return [m.model, m.name]; }))));
+      box.appendChild(el("h2", "", "How it is used"));
       [["count", "How many", 1, 8, 1], ["spread", "Placed in a ring of, m", 2, 40, 1], ["seconds", "Seconds to hold", 0.5, 120, 0.5],
         ["players", "Players needed at once", 1, 8, 1], ["uses", "Uses each (0 = no limit)", 0, 50, 1],
         ["cooldown", "Seconds between uses", 0, 600, 5]].forEach(function (f) {
@@ -740,6 +893,7 @@
       pickAv.addEventListener("change", redraw);
       box.appendChild(field(falls ? "What falls" : drops ? "Delivered by" : "AV", pickAv));
       if (state.canEdit) box.appendChild(field("Note for all staff", noteButtons(d.record)));
+      box.appendChild(el("h2", "", drops ? "Flyby and crate" : falls ? "Fall and impact" : "Flight and impact"));
       if (falls && d.rim === undefined) d.rim = 1;
       (drops ? [["height", "Release height, m", 15, 90, 5], ["run", "AV flies in from, m", 60, 170, 10],
         ["flySeconds", "Flyby, s", 4, 20, 1], ["fallSeconds", "Crate comes down in, s", 3, 20, 1], ["hover", "Hovers at, m", 0, 3, 0.1]] :
@@ -787,7 +941,7 @@
       box.appendChild(field("Camera shot for players", camera));
     }
 
-    var row = el("div", "row");
+    var row = el("div", "row barMark");
     var saved = d.id && JSON.stringify(strip(d)) === JSON.stringify(strip(original(kind, d.id)));
     if (kind === "loot") {
       row.appendChild(btn("Try it on me", "main", function () {
@@ -815,16 +969,26 @@
         }));
       }
     }
+    if (state.canEdit && d.id) {
+      row.appendChild(btn("Duplicate", "", function () {
+        leave(kind, function () {
+          var copy = strip(d);
+          copy.name = (copy.name + " copy").slice(0, 32);
+          choose(kind, copy);
+        });
+      }));
+    }
     box.appendChild(row);
     if (state.canEdit && kind === "boss" && d.record) {
       box.appendChild(el("h2", "", "Model note, shared with all staff"));
       box.appendChild(noteButtons(d.record));
     }
+    arrange(kind, box, top);
     return saved;
   }
   function strip(d) {
     var out = {};
-    Object.keys(d || {}).sort().forEach(function (k) { if (k !== "id" && k !== "builtin" && (d[k] !== "" || k === "model") && !(k === "spawnDelay" && d[k] === 3) && !(k === "warningLead" && d[k] === 6)) out[k] = d[k]; });
+    Object.keys(d || {}).sort().forEach(function (k) { if (k !== "id" && k !== "builtin" && (d[k] !== "" || k === "model") && !(k === "spawnDelay" && d[k] === 3) && !(k === "warningLead" && d[k] === 6) && !(k === "rim" && d[k] === 1)) out[k] = d[k]; });
     if (out.units) out.units = arr(out.units).map(function (u) { return { record: u.record, count: u.count }; });
     if (out.entries) out.entries = arr(out.entries).map(function (e) {
       var entry = {};
@@ -840,14 +1004,26 @@
     return out;
   }
   function original(kind, id) { return arr(state[kind]).filter(function (p) { return p.id === id; })[0]; }
-  function renderKind(kind) { renderList(kind); renderEditor(kind); }
+  function renderKind(kind) { renderEditor(kind); renderList(kind); }
+  // New data from the server: adopt what was just saved, and never interrupt somebody typing.
+  function refreshKind(kind) {
+    var d = drafts[kind];
+    if (d && (!d.id || d.builtin)) {
+      var same = arr(state[kind]).filter(function (p) { return !p.builtin && JSON.stringify(strip(p)) === JSON.stringify(strip(d)); })[0];
+      if (same) return choose(kind, same);
+    }
+    var at = document.activeElement;
+    var typing = at && /^(INPUT|TEXTAREA|SELECT)$/.test(at.tagName) && document.querySelector('[data-editor="' + kind + '"]').contains(at);
+    if (typing) return renderList(kind);
+    renderKind(kind);
+  }
 
   function renderState() {
     renderAnnounce();
     var tab = document.querySelector('[data-tab="chimera"]');
     tab.style.display = state.chimera ? "" : "none";
     if (!state.chimera && tab.classList.contains("on")) document.querySelector('[data-tab="live"]').click();
-    ["boss", "squad", "av", "fall", "drop", "interact", "cast", "objectives", "loot"].forEach(renderKind);
+    ["boss", "squad", "av", "fall", "drop", "interact", "cast", "objectives", "loot"].forEach(refreshKind);
     renderLootSettings();
     [["chObjectives", "objectives", "No objectives", "objectives"], ["chLoot", "loot", "No loot", "loot table"]].forEach(function (c) {
       var select = $(c[0]), chosen = select.value;

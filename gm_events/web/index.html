@@ -8,80 +8,108 @@
 </head>
 <body>
 <div class="panel" role="dialog" aria-label="Event panel">
+  <div id="rail">
+    <h1 id="title">Live</h1>
+    <nav id="tabs">
+      <div data-area="both">
+        <button type="button" data-tab="live" class="on"><span>Live</span><span class="count"></span></button>
+      </div>
+      <div data-area="world">
+        <h3>Enemies</h3>
+        <button type="button" data-tab="boss"><span>Bosses</span><span class="count"></span></button>
+        <button type="button" data-tab="squad"><span>Squads</span><span class="count"></span></button>
+        <button type="button" data-tab="chimera"><span>Chimera</span><span class="count"></span></button>
+      </div>
+      <div data-area="world">
+        <h3>Arrivals</h3>
+        <button type="button" data-tab="av"><span>AV crash</span><span class="count"></span></button>
+        <button type="button" data-tab="fall"><span>Falling</span><span class="count"></span></button>
+        <button type="button" data-tab="drop"><span>Supply drop</span><span class="count"></span></button>
+      </div>
+      <div data-area="scene">
+        <h3>People and places</h3>
+        <button type="button" data-tab="cast"><span>Cast</span><span class="count"></span></button>
+        <button type="button" data-tab="places"><span>Bookmarks</span><span class="count"></span></button>
+      </div>
+      <div data-area="scene">
+        <h3>What players do</h3>
+        <button type="button" data-tab="objectives"><span>Objectives</span><span class="count"></span></button>
+        <button type="button" data-tab="interact"><span>Interact</span><span class="count"></span></button>
+      </div>
+      <div data-area="both">
+        <h3>Shared</h3>
+        <button type="button" data-tab="loot"><span>Loot</span><span class="count"></span></button>
+        <button type="button" data-tab="announce"><span>Announcements</span><span class="count"></span></button>
+      </div>
+    </nav>
+  </div>
   <header>
-    <h1>Event control</h1>
-    <label>Target
-      <select id="target"></select>
-    </label>
+    <div id="areas" role="tablist">
+      <button type="button" role="tab" data-go="world" aria-selected="true">World Events</button>
+      <button type="button" role="tab" data-go="scene" aria-selected="false">Custom Scenes</button>
+    </div>
+    <label>Target <select id="target"></select></label>
     <button id="ghost" type="button" aria-pressed="false">Ghost: off</button>
-    <button id="stop" type="button" class="danger">Stop everything</button>
+    <button id="stop" type="button">Stop everything</button>
     <button id="close" type="button">Close (Esc)</button>
   </header>
-
-  <nav id="tabs">
-    <button type="button" data-tab="live" class="on">Live</button>
-    <button type="button" data-tab="boss">Bosses</button>
-    <button type="button" data-tab="chimera">Chimera</button>
-    <button type="button" data-tab="squad">Squads</button>
-    <button type="button" data-tab="av">AV crash</button>
-    <button type="button" data-tab="fall">Falling</button>
-    <button type="button" data-tab="drop">Supply drop</button>
-    <button type="button" data-tab="interact">Interact</button>
-    <button type="button" data-tab="cast">Cast</button>
-    <button type="button" data-tab="objectives">Objectives</button>
-    <button type="button" data-tab="loot">Loot</button>
-    <button type="button" data-tab="announce">Announcements</button>
-  </nav>
-
   <main>
     <section data-view="live" class="on">
-      <div class="col">
-        <h2>Active now</h2>
-        <div id="bosses"></div>
-        <div id="runs"></div>
-        <div id="interacts"></div>
-        <p id="hostiles" class="dim"></p>
-        <div class="row">
-          <button type="button" data-cmd="gm.bring">Bring to me</button>
-          <button type="button" data-cmd="gm.killboss" class="danger">Kill bosses</button>
-          <button type="button" data-cmd="gm.clean">Clean up bodies</button>
-        </div>
-        <h2>Mark</h2>
-        <div class="row">
-          <button type="button" data-cmd="gm.mark">Mark where I stand</button>
-          <button type="button" data-cmd="gm.unmark">Clear mark</button>
-        </div>
-        <div id="bookmarkBox">
-          <h2>Bookmarks</h2>
-          <div class="row">
-            <input id="bmName" type="text" maxlength="32" placeholder="Name">
-            <input id="bmGroup" type="text" maxlength="24" placeholder="Group (optional)">
-            <button id="bmSave" type="button">Save where I stand</button>
+      <div class="board">
+        <div class="col">
+          <div class="tile"><h2>Running now</h2>
+            <div id="bosses"></div>
+            <div id="runs"></div>
+            <div id="interacts"></div>
+            <div id="people"></div>
+            <p id="hostiles" class="dim"></p>
+            <div class="row">
+              <button type="button" data-cmd="gm.bring">Bring bosses to me</button>
+              <button type="button" data-cmd="gm.clean">Clean up bodies</button>
+              <button type="button" data-cmd="gm.killboss" class="danger">Kill bosses</button>
+            </div>
           </div>
-          <div id="bookmarks"></div>
-          <p class="dim">Bookmarks appear under Target. Saving the same name moves it.</p>
         </div>
-      </div>
-      <div class="col">
-        <h2>Scenes</h2>
-        <div id="scenes" class="row"></div>
-        <h2>Effects</h2>
-        <div class="row">
-          <button type="button" data-cmd="gm.boom">Blast</button>
-          <button type="button" data-cmd="gm.fire" data-arg="60">Fire, 60 s</button>
-          <button type="button" data-cmd="gm.cinematic" data-arg="6">Camera shot, 6 s</button>
-        </div>
-        <h2>Announce to everyone</h2>
-        <div class="row">
-          <input id="announce" type="text" maxlength="160" placeholder="Message">
-          <button id="announceSend" type="button">Send</button>
+        <div class="col">
+          <div class="tile"><h2>Announce to everyone</h2>
+            <input id="announce" class="wide" type="text" maxlength="160" placeholder="Message">
+            <div class="row"><button id="announceSend" type="button">Send</button></div>
+          </div>
+          <div class="tile"><h2>Effects</h2>
+            <div class="row">
+              <button type="button" data-cmd="gm.boom">Blast</button>
+              <button type="button" data-cmd="gm.fire" data-arg="60">Fire, 60 s</button>
+              <button type="button" data-cmd="gm.cinematic" data-arg="6">Camera shot, 6 s</button>
+            </div>
+          </div>
         </div>
       </div>
     </section>
-
+    <section data-view="places">
+      <div class="board two">
+        <div class="col">
+          <div class="tile"><h2>My mark</h2>
+            <div class="row">
+              <button type="button" data-cmd="gm.mark">Mark where I stand</button>
+              <button type="button" data-cmd="gm.unmark">Clear mark</button>
+            </div>
+          </div>
+          <div class="tile"><h2>Scenes</h2><div id="scenes" class="row"></div></div>
+        </div>
+        <div class="col">
+          <div class="tile" id="bookmarkBox"><h2>Bookmarks</h2>
+            <input id="bmName" class="wide" type="text" maxlength="32" placeholder="Name">
+            <input id="bmGroup" class="wide" type="text" maxlength="24" placeholder="Group (optional)">
+            <div class="row"><button id="bmSave" type="button">Save where I stand</button></div>
+            <div id="bookmarks"></div>
+            <p class="dim">They appear under Target. Saving the same name moves it.</p>
+          </div>
+        </div>
+      </div>
+    </section>
     <section data-view="boss"><div class="list" data-list="boss"></div><div class="editor" data-editor="boss"></div></section>
     <section data-view="chimera">
-      <div class="col">
+      <div class="col"><div class="tile">
         <h2>Spawn</h2>
         <label class="field"><span>Name</span><input id="chName" type="text" maxlength="32" value="Militech Chimera"></label>
         <label class="field"><span>Health multiplier</span><input id="chHealth" type="number" min="0.1" max="100" step="0.5" value="2"></label>
@@ -91,8 +119,8 @@
         <label class="field"><span>Loot</span><select id="chLoot"></select></label>
         <button id="chSpawn" type="button" class="main">Spawn Chimera</button>
         <p class="dim">Needs a large, open, level area. Every player fighting it needs Phantom Liberty.</p>
-      </div>
-      <div class="col">
+      </div></div>
+      <div class="col"><div class="tile">
         <h2>Jump to phase</h2>
         <div class="row">
           <button type="button" data-phase="armored">Armored</button>
@@ -103,7 +131,7 @@
         <p class="dim">Going back a phase replaces the boss with a fresh body.</p>
         <button type="button" data-phase="endrepair">End the repair now</button>
         <p class="dim">At 70% health it repairs for 60 seconds and cannot be hurt. From 40% it vents gas. Near the end its core is exposed and the bar refills.</p>
-      </div>
+      </div></div>
     </section>
     <section data-view="squad"><div class="list" data-list="squad"></div><div class="editor" data-editor="squad"></div></section>
     <section data-view="av"><div class="list" data-list="av"></div><div class="editor" data-editor="av"></div></section>
@@ -113,7 +141,7 @@
     <section data-view="cast">
       <div class="list" data-list="cast"></div>
       <div class="editor" data-editor="cast"></div>
-      <div class="editor narrow" id="stage">
+      <div class="side" id="stage">
         <h2>On stage</h2>
         <select id="castWho"></select>
         <p class="dim" id="castDoing"></p>
@@ -140,7 +168,7 @@
     <section data-view="loot">
       <div class="list" data-list="loot"></div>
       <div class="editor" data-editor="loot"></div>
-      <div class="editor narrow" id="lootSettings">
+      <div class="side" id="lootSettings">
         <h2>How loot is given</h2>
         <label class="field"><span>Method</span><select data-loot="lootMethod">
           <option value="event">My own script (event)</option>
@@ -161,7 +189,7 @@
       </div>
     </section>
     <section data-view="announce">
-      <div class="col">
+      <div class="col"><div class="tile">
         <h2>How players are told</h2>
         <label class="field"><span>Method</span><select data-set="announceMethod">
           <option value="notification">On-screen notification</option>
@@ -179,8 +207,8 @@
           <button id="announceSave" type="button" class="main">Save</button>
           <button id="announceTest" type="button">Send a test to everyone</button>
         </div>
-      </div>
-      <div class="col">
+      </div></div>
+      <div class="col"><div class="tile">
         <h2>Messages</h2>
         <label class="field"><span>Boss appears</span><input type="text" maxlength="200" data-set="msgBossAppeared"></label>
         <label class="field"><span>Boss health</span><input type="text" maxlength="200" data-set="msgBossHealth"></label>
@@ -191,7 +219,7 @@
         <label class="field"><span>Chimera: gas</span><input type="text" maxlength="200" data-set="msgChimeraGas"></label>
         <label class="field"><span>Chimera: core</span><input type="text" maxlength="200" data-set="msgChimeraCore"></label>
         <p class="dim">Use {boss}, {percent} and {players}. Empty a box to turn that message off. A boss preset can have its own arrival and defeat lines.</p>
-      </div>
+      </div></div>
     </section>
   </main>
 
