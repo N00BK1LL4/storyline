@@ -108,7 +108,7 @@
   }
   $("chSpawn").addEventListener("click", function () {
     var def = { name: $("chName").value, health: parseFloat($("chHealth").value), damage: parseFloat($("chDamage").value),
-      scaling: $("chScale").checked };
+      scaling: $("chScale").checked, objectivesId: $("chObjectives").value };
     confirmThen("Spawn the Chimera? It is a very large boss. Check the target is open ground.", function () {
       call("chimera", { def: def });
     });
@@ -533,6 +533,14 @@
     tab.style.display = state.chimera ? "" : "none";
     if (!state.chimera && tab.classList.contains("on")) document.querySelector('[data-tab="live"]').click();
     ["boss", "squad", "av", "objectives"].forEach(renderKind);
+    var select = $("chObjectives"), chosen = select.value;
+    select.textContent = "";
+    presetOptions("objectives", "No objectives", chosen, "objectives").forEach(function (o) {
+      var n = el("option", "", o[1]);
+      n.value = o[0];
+      select.appendChild(n);
+    });
+    select.value = chosen;
     var box = $("scenes");
     box.textContent = "";
     arr(state.scenes).forEach(function (s) {

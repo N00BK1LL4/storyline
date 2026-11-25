@@ -36,7 +36,7 @@ your saved presets, so editing a squad changes every crash that uses it.
 ## Objectives
 
 Make objective sets in the panel's **Objectives** tab and start them on their own, or
-attach them to a boss, squad or AV crash. Players who enter the radius get an on-screen
+attach them to a boss, squad, Chimera or AV crash. Players who enter the radius get an on-screen
 tracker and a map marker. Progress is shared. A set started on its own uses event NPCs
 already standing in its radius.
 

@@ -371,6 +371,19 @@ local function attachObjectives(playerId, def, comes)
     return true
 end
 
+-- Run an action with a set (or none) started around it.
+local function withObjectives(anchor, set, action, step)
+    if not set then return action(anchor, step) end
+    local run, problem = GM.startObjectives(anchor, set, true)
+    if not run then return false, problem end
+    local copy = {} -- the staff member's mark must not carry the event
+    for k, v in pairs(anchor) do copy[k] = v end
+    copy.event = run
+    local ok, reason = action(copy, step)
+    if ok then GM.objectivesReady(run) else GM.cancelObjectives(run) end
+    return ok, reason
+end
+
 local ops = {}
 
 function ops.objectives(playerId, d)
@@ -406,20 +419,7 @@ function ops.spawn(playerId, d)
     local anchor, why = target(playerId, d, spawnDistance(d.kind))
     if not anchor then return false, why end
     -- A crash starts its own at impact; a boss or squad starts them with itself.
-    local run
-    if def.objectivesDef and d.kind ~= "av" then
-        local problem
-        run, problem = GM.startObjectives(anchor, def.objectivesDef, true)
-        if not run then return false, problem end
-        local copy = {} -- the staff member's mark must not carry the event
-        for k, v in pairs(anchor) do copy[k] = v end
-        copy.event = run
-        anchor = copy
-    end
-    local ok, reason = core.actions[d.kind](anchor, { def = def })
-    if run then
-        if ok then GM.objectivesReady(run) else GM.cancelObjectives(run) end
-    end
+    local ok, reason = withObjectives(anchor, d.kind ~= "av" and def.objectivesDef or nil, core.actions[d.kind], { def = def })
     return ok, reason or (def.name .. " started")
 end
 
@@ -512,9 +512,12 @@ function ops.chimera(playerId, d)
     if type(d.def) ~= "table" then return false, "bad settings" end
     local name = text(d.def.name, 32)
     if not name then return false, "boss name: 1 to 32 characters" end
+    local link = { objectivesId = presetId(d.def.objectivesId) }
+    local linked, notLinked = attachObjectives(playerId, link, { boss = true, enemies = true })
+    if not linked then return false, notLinked end
     local anchor, why = target(playerId, d, GM.chimera.distance)
     if not anchor then return false, why end
-    return core.actions.chimera(anchor, { def = {
+    return withObjectives(anchor, link.objectivesDef, core.actions.chimera, { def = {
         name = name, health = number(d.def.health, 0.1, 100, 2), damage = number(d.def.damage, 0, 5, 0.8),
         scaling = d.def.scaling ~= false,
     } })
