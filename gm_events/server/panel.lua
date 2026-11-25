@@ -200,6 +200,24 @@ local function listOf(kind)
             units = { { record = GM.minion, count = 4 } },
         }
     end
+    if kind == "squad" then
+        list[#list + 1] = {
+            id = "builtin:arasaka", builtin = true, name = "Arasaka security", pattern = "cluster", radius = 6,
+            units = {
+                { record = "Character.arasaka_security1_ranged1_kenshin_ma", count = 3 },
+                { record = "Character.arasaka_security1_melee1_baton_ma", count = 1 },
+                { record = "Character.arasaka_soldier1_ranged3_masamune_mah_rare", count = 1 },
+            },
+        }
+        list[#list + 1] = {
+            id = "builtin:militech", builtin = true, name = "Militech patrol", pattern = "cluster", radius = 6,
+            units = {
+                { record = "Character.militech_ranger1_ranged1_saratoga_ma", count = 3 },
+                { record = "Character.militech_ranger2_ranged2_ajax_ma", count = 1 },
+                { record = "Character.militech_enforcer2_shotgun2_tactician_mah_rare", count = 1 },
+            },
+        }
+    end
     for id, def in pairs(presets[kind]) do
         local row = { id = id }
         for k, v in pairs(def) do row[k] = v end

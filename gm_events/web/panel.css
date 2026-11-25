@@ -52,6 +52,7 @@ section.on { display: flex; }
 .goal { border: 1px solid var(--line); padding: 10px 12px; margin-bottom: 10px; }
 .tag { font-size: 13px; padding: 1px 7px; border: 1px solid currentColor; }
 .tag.tested { color: var(--good); }
+.tag.soldier { color: #8fc7ff; }
 .tag.candidate { color: var(--dim); }
 .tag.risky { color: var(--warn); }
 .tag.broken { color: var(--accent); }

@@ -32,10 +32,27 @@
   /* ---------------------------------------------------------------- models */
   var data = window.GM_MODELS || { cats: [], risks: [], rows: "" };
   var models = [], riskOf = {};
+  var factions = [["arasaka", "Arasaka"], ["militech", "Militech"], ["kangtao", "Kang Tao"], ["security", "Private security"],
+    ["kurtz", "Barghest (Kurtz)"], ["ncpd", "NCPD"], ["maxtac", "MaxTac"], ["trauma", "Trauma Team"], ["netwatch", "NetWatch"],
+    ["maelstrom", "Maelstrom"], ["tyger", "Tyger Claws"], ["valentino", "Valentinos"], ["sixthstreet", "6th Street"],
+    ["animals", "Animals"], ["mox", "Mox"], ["voodoo", "Voodoo Boys"], ["scav", "Scavengers"], ["wraith", "Wraiths"],
+    ["afterlife", "Afterlife mercs"], ["aldecaldo", "Aldecaldos"], ["adelcaldo", "Aldecaldos"]]
+    .map(function (f) { return { key: f[0], name: f[1], test: new RegExp("(^|_)" + f[0]) }; });
+  // The faction named first wins: arasaka_security is Arasaka.
+  function factionOf(key) {
+    var found = null, at = Infinity;
+    factions.forEach(function (f) {
+      var hit = key.search(f.test);
+      if (hit >= 0 && hit < at) { found = f; at = hit; }
+    });
+    return found;
+  }
   data.rows.split("\n").forEach(function (line) {
     var p = line.split("|");
     if (p.length !== 3) return;
     var m = { record: "Character." + p[0], cat: data.cats[+p[1]], risk: data.risks[+p[2]], key: p[0].toLowerCase() };
+    m.faction = factionOf(m.key);
+    m.main = m.faction && m.key.indexOf(m.faction.key) === 0 ? 0 : 1; // plain versions before district and quest copies
     models.push(m);
     riskOf[m.record] = m.risk;
   });
@@ -43,11 +60,11 @@
   function verdict(record) {
     var s = state.status && state.status[record];
     if (s === "tested" || s === "broken") return s;
-    return riskOf[record] === "candidate" ? "candidate" : "risky";
+    return riskOf[record] === "candidate" || riskOf[record] === "soldier" ? riskOf[record] : "risky";
   }
   function tag(record) {
     var v = verdict(record);
-    var names = { tested: "Tested", broken: "Broken", candidate: "Candidate", risky: "Risky" };
+    var names = { tested: "Tested", broken: "Broken", candidate: "Candidate", soldier: "Soldier, untested", risky: "Risky" };
     return el("span", "tag " + v, names[v]);
   }
   function short(record) { return String(record || "").replace(/^(Character|Vehicle)\./, ""); }
@@ -82,7 +99,12 @@
     var bad = records.filter(function (r) { var v = verdict(r); return v === "risky" || v === "broken"; });
     body.kind = kind;
     var go = function () { call("spawn", body); };
-    if (!bad.length) return go();
+    if (!bad.length) {
+      var fresh = records.filter(function (r, i, a) { return verdict(r) === "soldier" && a.indexOf(r) === i; });
+      if (!fresh.length) return go();
+      return confirmThen("These soldiers have not been marked tested yet. Try them while no event is running: " +
+        fresh.map(short).join(", "), go);
+    }
     confirmThen("These models are marked risky or broken and may misbehave or crash players' games: " +
       bad.map(short).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(", "), go);
   }
@@ -437,6 +459,9 @@
         var row = el("div", "field");
         row.appendChild(numberInput(u, "count", 1, state.maxSquad, 1));
         row.appendChild(modelRow(u, redraw));
+        if (state.canEdit && u.record && verdict(u.record) !== "tested") {
+          row.appendChild(btn("Mark tested", "", function () { call("status", { record: u.record, value: "tested" }); }));
+        }
         row.appendChild(btn("Remove", "", function () { d.units.splice(i, 1); redraw(); }));
         box.appendChild(row);
       });
@@ -561,31 +586,40 @@
   [["", "All categories"]].concat(data.cats.map(function (c) { return [c, c.replace(/_/g, " ")]; })).forEach(function (o) {
     var n = el("option", "", o[1]); n.value = o[0]; $("category").appendChild(n);
   });
-  [["safe", "Tested and candidates"], ["tested", "Tested only"], ["all", "Everything, including risky"]].forEach(function (o) {
+  var listed = {};
+  [["", "All factions"]].concat(factions.map(function (f) { return [f.name, f.name]; })).forEach(function (o) {
+    if (listed[o[1]]) return;
+    listed[o[1]] = true;
+    var n = el("option", "", o[1]); n.value = o[0]; $("faction").appendChild(n);
+  });
+  [["safe", "Tested, candidates and soldiers"], ["tested", "Tested only"], ["all", "Everything, including risky"]].forEach(function (o) {
     var n = el("option", "", o[1]); n.value = o[0]; $("risk").appendChild(n);
   });
   function renderModels() {
     var words = $("search").value.toLowerCase().split(/\s+/).filter(Boolean);
-    var cat = $("category").value, risk = $("risk").value;
+    var faction = $("faction").value, cat = $("category").value, risk = $("risk").value;
     var found = models.filter(function (m) {
+      if (faction && (!m.faction || m.faction.name !== faction)) return false;
       if (cat && m.cat !== cat) return false;
       var v = verdict(m.record);
-      if (risk === "safe" && v !== "tested" && v !== "candidate") return false;
+      if (risk === "safe" && v !== "tested" && v !== "candidate" && v !== "soldier") return false;
       if (risk === "tested" && v !== "tested") return false;
       return words.every(function (w) { return m.key.indexOf(w) >= 0; });
     });
+    found.sort(function (a, b) { return a.main - b.main; });
     var box = $("models");
     box.textContent = "";
     $("found").textContent = found.length + " models" + (found.length > 150 ? ", showing the first 150. Search to narrow it down." : "");
     found.slice(0, 150).forEach(function (m) {
       var b = btn("", "model", function () { var fn = onPick; closePicker(); if (fn) fn(m.record); });
       b.appendChild(el("span", "", short(m.record)));
-      b.appendChild(el("span", "dim", m.cat.replace(/_/g, " ")));
+      b.appendChild(el("span", "dim", m.faction ? m.faction.name : m.cat.replace(/_/g, " ")));
       b.appendChild(tag(m.record));
       box.appendChild(b);
     });
   }
   $("search").addEventListener("input", renderModels);
+  $("faction").addEventListener("change", renderModels);
   $("category").addEventListener("change", renderModels);
   $("risk").addEventListener("change", renderModels);
 
