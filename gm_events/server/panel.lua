@@ -186,9 +186,27 @@ function clean.fall(d)
     }
 end
 
+function clean.drop(d)
+    local name = text(d.name, 32)
+    if not name then return nil, "name: 1 to 32 characters" end
+    if not avNames[d.record] or fallNames[d.record] then return nil, "choose an AV" end
+    return {
+        name = name, record = d.record,
+        height = number(d.height, 15, 90, 45), run = number(d.run, 60, 170, 130),
+        flySeconds = number(d.flySeconds, 4, 20, 9), fallSeconds = number(d.fallSeconds, 3, 20, 8),
+        direction = number(d.direction, -180, 180, 0), hover = number(d.hover, 0, 3, 0.8),
+        openSeconds = number(d.openSeconds, 1, 60, 5), life = number(d.life, 1, 60, 15),
+        share = d.share == "opener" and "opener" or "near",
+        lootId = presetId(d.lootId), squadId = presetId(d.squadId), bossId = presetId(d.bossId),
+        objectivesId = presetId(d.objectivesId), spawnDelay = number(d.spawnDelay, 0, 60, 3),
+        warningLead = number(d.warningLead, 0, 60, 6), cinematic = d.cinematic == true or nil,
+        warning = text(d.warning, 160), arrival = text(d.arrival, 160), opened = text(d.opened, 160),
+    }
+end
+
 -- ------------------------------------------------------------------- presets
 
-local presets = { boss = {}, squad = {}, av = {}, fall = {}, objectives = {}, loot = {} } -- kind -> id -> def
+local presets = { boss = {}, squad = {}, av = {}, fall = {}, drop = {}, objectives = {}, loot = {} } -- kind -> id -> def
 local status = {}                                  -- record -> "tested" | "broken"
 local shipped = {}
 for _, record in ipairs(GM.testedModels) do shipped[record] = "tested" end
@@ -226,6 +244,12 @@ local function listOf(kind)
             }
         end
     end
+    if kind == "drop" then
+        list[#list + 1] = {
+            id = "builtin:default", builtin = true, name = "Supply drop", record = GM.dropAv, height = 45, run = 130,
+            flySeconds = 9, fallSeconds = 8, direction = 0, hover = 0.8, openSeconds = 5, life = 15, share = "near",
+        }
+    end
     if kind == "fall" then
         list[#list + 1] = {
             id = "builtin:wreck", builtin = true, name = "Burning wreck", record = "Vehicle.q306_orbital_capsule", crater = 6, sink = 1, rim = 1,
@@ -236,11 +260,6 @@ local function listOf(kind)
             id = "builtin:capsule", builtin = true, name = "Orbital capsule", record = "Vehicle.q306_orbital_capsule", crater = 5, sink = 0.4, rim = 1,
             distance = 60, height = 160, flightSeconds = 6, direction = 0, spin = 0, intact = true, blastRadius = 8,
             blastDamage = 0, fireSeconds = 20, debris = 0, debrisRadius = 30,
-        }
-        list[#list + 1] = {
-            id = "builtin:crate", builtin = true, name = "Supply drop", record = "Vehicle.sa_ep1_airdrop_crate", crater = 0, sink = 0.6, rim = 1,
-            distance = 0, height = 120, flightSeconds = 7, direction = 0, spin = 0, intact = true, blastRadius = 4,
-            blastDamage = 0, fireSeconds = 0, debris = 0, debrisRadius = 30,
         }
     end
     if kind == "av" then
@@ -343,7 +362,7 @@ local function sendState(playerId)
         for key in pairs(GM.announceKeys) do values[key] = GM[key] end
         send(playerId, "gm_events:panel:state", { part = "announce", announce = values })
     end
-    for _, kind in ipairs({ "boss", "squad", "av", "fall", "objectives", "loot" }) do
+    for _, kind in ipairs({ "boss", "squad", "av", "fall", "drop", "objectives", "loot" }) do
         send(playerId, "gm_events:panel:state", { part = kind, [kind] = listOf(kind) })
     end
 end
@@ -410,7 +429,7 @@ end
 -- ------------------------------------------------------------------- actions
 
 -- op -> the typed command whose right it needs
-local spawnRight = { boss = "command.gm.boss", squad = "command.gm.wave", av = "command.gm.av", fall = "command.gm.fall",
+local spawnRight = { boss = "command.gm.boss", squad = "command.gm.wave", av = "command.gm.av", fall = "command.gm.fall", drop = "command.gm.drop",
     objectives = "command.gm.objectives" }
 local function spawnDistance(kind)
     return kind == "boss" and GM.npcDistance or kind == "squad" and GM.npcDistance + 6 or GM.eventDistance
@@ -519,7 +538,7 @@ function ops.spawn(playerId, d)
     end
     local def, bad = clean[d.kind](source)
     if not def then return false, bad end
-    local lands = d.kind == "av" or d.kind == "fall"
+    local lands = d.kind == "av" or d.kind == "fall" or d.kind == "drop"
     if lands then
         local attached, missing = attach(playerId, def)
         if not attached then return false, missing end
@@ -793,5 +812,5 @@ CreateThread(function()
 end)
 
 load()
-print(("gm_events panel ready: %d boss, %d squad, %d AV, %d falling, %d objective, %d loot presets"):format(
-    count(presets.boss), count(presets.squad), count(presets.av), count(presets.fall), count(presets.objectives), count(presets.loot)))
+print(("gm_events panel ready: %d boss, %d squad, %d AV, %d falling, %d drop, %d objective, %d loot presets"):format(
+    count(presets.boss), count(presets.squad), count(presets.av), count(presets.fall), count(presets.drop), count(presets.objectives), count(presets.loot)))

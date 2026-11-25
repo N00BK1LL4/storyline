@@ -470,6 +470,10 @@ local function makeBody(c, at, yaw, bucket, ttlMs)
             end,
             exists = function() return Open77.vehicles.get(id) ~= nil end,
             move = function(p, facing) return Open77.vehicles.setTransform(id, { x = p.x, y = p.y, z = p.z, yaw = facing }) end,
+            remove = function()
+                vehicles[id] = nil
+                if Open77.vehicles.get(id) then Open77.vehicles.remove(id) end
+            end,
             destroy = function()
                 Open77.vehicles.setFrozen(id, false)
                 Open77.vehicles.explode(id)
@@ -513,6 +517,7 @@ local function makeBody(c, at, yaw, bucket, ttlMs)
             return moved
         end,
         destroy = drop,
+        remove = drop,
     }
 end
 
@@ -534,6 +539,8 @@ local function makeFire(at, bucket, effect)
         end,
     }
 end
+
+GM.makeBody, GM.makeFire = makeBody, makeFire -- server/drop.lua
 
 -- The AV dives along a straight line and detonates at the mark. Nobody sits in
 -- it, so no client simulates it: the server moves a frozen body every tick.
@@ -820,6 +827,7 @@ local function cleanup()
     clearBursts()
     GM.clearObjectives()
     GM.clearLoot()
+    GM.clearDrops()
     TriggerClientEvent("gm_events:release", -1)
 end
 
@@ -857,7 +865,7 @@ end
 
 command("gm.help", function()
     return true, "gm.mark, gm.unmark, gm.announce <text>, gm.boss <" .. names(GM.bosses)
-        .. ">, gm.wave <n>, gm.av, gm.fall, gm.boom, gm.fire <sec>, gm.cinematic <sec>, gm.scene <"
+        .. ">, gm.wave <n>, gm.av, gm.fall, gm.drop, gm.boom, gm.fire <sec>, gm.cinematic <sec>, gm.scene <"
         .. names(GM.scenes) .. ">, gm.chimera, gm.gas, gm.status, gm.killboss, gm.bring, gm.clean, gm.objectives, gm.loot, gm.ghost [on|off], gm.panel, gm.check, gm.stop"
 end)
 

@@ -24,9 +24,9 @@
     if (bridge) bridge.emit("gm:error", { text: String(e.message).slice(0, 300) + " @" + e.lineno });
   });
 
-  var state = { boss: [], squad: [], av: [], fall: [], fallModels: [], objectives: [], loot: [], lootItems: [], scenes: [], avModels: [], status: {}, maxSquad: 20, canEdit: false };
+  var state = { boss: [], squad: [], av: [], fall: [], fallModels: [], drop: [], objectives: [], loot: [], lootItems: [], scenes: [], avModels: [], status: {}, maxSquad: 20, canEdit: false };
   var live = { bosses: [], players: [], hostiles: 0, ghost: false, mark: false };
-  var drafts = { boss: null, squad: null, av: null, fall: null, objectives: null, loot: null };
+  var drafts = { boss: null, squad: null, av: null, fall: null, drop: null, objectives: null, loot: null };
   var req = 0;
 
   /* ---------------------------------------------------------------- models */
@@ -96,7 +96,7 @@
   // Warn once before spawning anything doubtful.
   function spawn(kind, def, body) {
     var records = kind === "squad" ? def.units.map(function (u) { return u.record; }) : kind === "boss" ? [def.record] : [];
-    if (kind === "av" || kind === "fall") {
+    if (kind === "av" || kind === "fall" || kind === "drop") {
       var av = arr(bodies(kind)).filter(function (m) { return m.record === def.record; })[0];
       if (av && avVerdict(av) === "broken" && !body.sure) {
         body.sure = true;
@@ -323,6 +323,11 @@
       return { name: "", record: first ? first.record : "", distance: 60, height: 160, flightSeconds: 5, direction: 0, spin: 120,
         blastRadius: 14, blastDamage: 0, fireSeconds: 60, crater: 5, sink: 0.4, rim: 1, debris: 5, debrisRadius: 30 };
     },
+    drop: function () {
+      var first = arr(state.avModels)[0];
+      return { name: "", record: first ? first.record : "", height: 45, run: 130, flySeconds: 9, fallSeconds: 8, direction: 0,
+        hover: 0.8, openSeconds: 5, life: 15, share: "near" };
+    },
     objectives: function () { return { name: "", radius: 60, items: [newGoal("enemies")], ordered: true, timeLimit: 0 }; },
     loot: function () { return { name: "", entries: [{ item: "", min: 1, max: 1, chance: 100 }] }; }
   };
@@ -331,7 +336,7 @@
       var units = arr(d.units), total = units.reduce(function (n, u) { return n + (+u.count || 0); }, 0);
       return total + " units, " + d.pattern;
     }
-    if (kind === "av" || kind === "fall") {
+    if (kind === "av" || kind === "fall" || kind === "drop") {
       var with_ = [];
       if (d.squadId) with_.push((original("squad", d.squadId) || { name: "missing squad" }).name);
       if (d.bossId) with_.push(d.bossId === "chimera" ? "Chimera" : (original("boss", d.bossId) || { name: "missing boss" }).name);
@@ -573,26 +578,33 @@
     } else if (kind === "loot") {
       lootEditor(box, d, redraw);
     } else {
-      var falls = kind === "fall";
+      var falls = kind === "fall", drops = kind === "drop";
       var pickAv = choice(d, "record", arr(bodies(kind)).map(function (m) {
         var v = avVerdict(m);
         return [m.record, m.name + (v === "tested" ? "" : " (" + v + ")")];
       }));
       pickAv.addEventListener("change", redraw);
-      box.appendChild(field(falls ? "What falls" : "AV", pickAv));
+      box.appendChild(field(falls ? "What falls" : drops ? "Delivered by" : "AV", pickAv));
       if (state.canEdit) box.appendChild(field("Note for all staff", noteButtons(d.record)));
       if (falls && d.rim === undefined) d.rim = 1;
-      (falls ? [["distance", "Comes in from, m", 0, 150, 5], ["height", "Start height, m", 40, 250, 10],
+      (drops ? [["height", "Release height, m", 15, 90, 5], ["run", "AV flies in from, m", 60, 170, 10],
+        ["flySeconds", "Flyby, s", 4, 20, 1], ["fallSeconds", "Crate comes down in, s", 3, 20, 1], ["hover", "Hovers at, m", 0, 3, 0.1]] :
+        falls ? [["distance", "Comes in from, m", 0, 150, 5], ["height", "Start height, m", 40, 250, 10],
         ["flightSeconds", "Fall time, s", 2, 15, 0.5], ["spin", "Spin, degrees", -720, 720, 30]] :
         [["distance", "Start distance, m", 40, 200, 5], ["height", "Start height, m", 20, 150, 5],
-        ["flightSeconds", "Flight time, s", 2, 15, 0.5]]).concat([["direction", "Approach angle, degrees", -180, 180, 15],
+        ["flightSeconds", "Flight time, s", 2, 15, 0.5]]).concat([["direction", "Approach angle, degrees", -180, 180, 15]].concat(drops ? [["openSeconds", "Seconds to open", 1, 60, 1],
+        ["life", "Stays for, minutes", 1, 60, 1]] : [
         ["blastRadius", "Blast radius, m", 3, 40, 1], ["blastDamage", "Blast damage", 0, 500, 10],
-        ["fireSeconds", "Fire, s", 0, 300, 10]],
+        ["fireSeconds", "Fire, s", 0, 300, 10]]),
         falls ? [["crater", "Crater size, m", 0, 12, 1], ["rim", "Rim height, x", 0.3, 3, 0.1], ["sink", "Sunk into the ground, m", 0, 3, 0.1], ["debris", "Smaller pieces", 0, 12, 1], ["debrisRadius", "Pieces land within, m", 8, 60, 2]] : []).forEach(function (f) {
         box.appendChild(field(f[1], numberInput(d, f[0], f[2], f[3], f[4])));
       });
+      if (drops) {
+        box.appendChild(field("Loot goes to", choice(d, "share", [["near", "Everyone within 12 m"], ["opener", "Only the opener"]])));
+        lootField(box, d, "Players open it by standing next to it. Ground loot drops one roll under the crate.");
+      }
       if (falls) box.appendChild(field("Stays in one piece", tickBox(d, "intact")));
-      box.appendChild(el("p", "dim", (falls ? "Untick to make it explode on impact. Crater 0 means none; craters need open77_props. Smaller pieces never hurt players. " : "") + "Angle 0 comes from your left. Blast damage above 0 hurts players in the radius."));
+      box.appendChild(el("p", "dim", (falls ? "Untick to make it explode on impact. Crater 0 means none; craters need open77_props. Smaller pieces never hurt players. " : "") + "Angle 0 comes from your left. " + (drops ? "" : "Blast damage above 0 hurts players in the radius.")));
 
       box.appendChild(el("h2", "", "Who comes with it"));
       d.squadId = d.squadId || "";
@@ -604,9 +616,9 @@
       }
       box.appendChild(field("Squad", choice(d, "squadId", presetOptions("squad", "No squad", d.squadId, "squad"))));
       box.appendChild(field("Boss", choice(d, "bossId", bosses)));
-      objectivesField(box, d, "Objectives begin at impact.");
+      objectivesField(box, d, drops ? "Objectives begin when it lands." : "Objectives begin at impact.");
       if (d.spawnDelay === undefined) d.spawnDelay = 3;
-      box.appendChild(field("Seconds after impact", numberInput(d, "spawnDelay", 0, 60, 1)));
+      box.appendChild(field(drops ? "Seconds after landing" : "Seconds after impact", numberInput(d, "spawnDelay", 0, 60, 1)));
       box.appendChild(field("Message when they arrive", textInput(d, "arrival", 160)));
       box.appendChild(el("p", "dim", "Leave the message empty for the server's usual one. It is only sent when someone comes with the crash."));
 
@@ -617,6 +629,7 @@
       var camera = el("input");
       camera.type = "checkbox"; camera.checked = d.cinematic === true;
       camera.addEventListener("change", function () { if (camera.checked) d.cinematic = true; else delete d.cinematic; });
+      if (drops) box.appendChild(field("Message when opened", textInput(d, "opened", 160)));
       box.appendChild(field("Camera shot for players", camera));
     }
 
@@ -679,7 +692,7 @@
     var tab = document.querySelector('[data-tab="chimera"]');
     tab.style.display = state.chimera ? "" : "none";
     if (!state.chimera && tab.classList.contains("on")) document.querySelector('[data-tab="live"]').click();
-    ["boss", "squad", "av", "fall", "objectives", "loot"].forEach(renderKind);
+    ["boss", "squad", "av", "fall", "drop", "objectives", "loot"].forEach(renderKind);
     renderLootSettings();
     [["chObjectives", "objectives", "No objectives", "objectives"], ["chLoot", "loot", "No loot", "loot table"]].forEach(function (c) {
       var select = $(c[0]), chosen = select.value;

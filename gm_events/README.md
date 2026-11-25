@@ -34,9 +34,17 @@ An AV crash preset can bring a squad, a boss or the Chimera with it, a few secon
 after impact, with its own warning, arrival message and camera shot. It refers to
 your saved presets, so editing a squad changes every crash that uses it.
 
+## Supply drops
+
+An AV flies over, lets a crate go and leaves. The crate comes down gently, hovers where it
+lands and is opened by standing next to it for a few seconds. It can give loot (to
+everyone close by, or only the opener) and bring a squad, boss or objectives. Starting one
+needs `command.gm.drop`, which `command.gm.*` includes; a drop with loot also needs
+`gm_events.loot`.
+
 ## Falling objects
 
-The **Falling** tab drops an orbital capsule, escape pod, airdrop crate, rocket or cargo container
+The **Falling** tab drops an orbital capsule, escape pod, rocket or cargo container
 from the sky (the container and the craters need `open77_props`), with a fire trail, an optional warning and camera shot, smaller pieces
 landing around it, and the same squads, bosses and objectives a crash can bring.
 Starting one needs `command.gm.fall`, which `command.gm.*` includes.
@@ -91,7 +99,7 @@ AddEventHandler("gm_events:loot", function(award)
 end)
 ```
 
-An award has `phase`, `id`, `source` (enemy, boss, objectives or test), `name`, `table`,
+An award has `phase`, `id`, `source` (enemy, boss, objectives, drop or test), `name`, `table`,
 `playerId`, `playerName`, `items` (`item`, `label`, `amount`), `position`, `method` and
 `handled`.
 

@@ -9,7 +9,7 @@
 -- award = {
 --   phase    "award", or "pickup" when a ground drop was taken
 --   id       unique; a retry sends the SAME id, so paying an id once is always safe
---   source   "enemy", "boss", "objectives" or "test"
+--   source   "enemy", "boss", "objectives", "drop" or "test"
 --   name     what it came from; table: the loot table's name
 --   playerId, playerName, items = { { item, label, amount } }, position = { x, y, z, bucket }
 --   method, handled (true when the export or the ground already delivered it)
@@ -149,7 +149,9 @@ local function give(set, source, name, playerId, position)
     return award.id
 end
 
--- -------------------------------------------------------------------- earning
+GM.lootGive = give -- server/drop.lua
+
+-- ------------------------------------------------------------------- earning
 
 -- "player:<id>" from the platform's damage events.
 function GM.lootHit(n, from)
