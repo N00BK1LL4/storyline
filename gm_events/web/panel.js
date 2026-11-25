@@ -24,9 +24,9 @@
     if (bridge) bridge.emit("gm:error", { text: String(e.message).slice(0, 300) + " @" + e.lineno });
   });
 
-  var state = { boss: [], squad: [], av: [], scenes: [], avModels: [], status: {}, maxSquad: 20, canEdit: false };
+  var state = { boss: [], squad: [], av: [], objectives: [], scenes: [], avModels: [], status: {}, maxSquad: 20, canEdit: false };
   var live = { bosses: [], players: [], hostiles: 0, ghost: false, mark: false };
-  var drafts = { boss: null, squad: null, av: null };
+  var drafts = { boss: null, squad: null, av: null, objectives: null };
   var req = 0;
 
   /* ---------------------------------------------------------------- models */
@@ -190,9 +190,62 @@
       box.appendChild(row);
     });
     $("hostiles").textContent = live.hostiles + (live.hostiles === 1 ? " hostile alive" : " hostiles alive");
+    renderRuns();
+  }
+
+  /* Rebuilt only when something structural changes, so a click is never lost. */
+  function renderRuns() {
+    var box = $("runs"), runs = arr(live.objectives);
+    var shape = JSON.stringify(runs.map(function (r) {
+      return [r.id, r.name, r.outcome, arr(r.items).map(function (i) { return [i.text, i.done]; })];
+    }));
+    if (box.dataset.shape !== shape) {
+      box.dataset.shape = shape;
+      box.textContent = "";
+      runs.forEach(function (r) {
+        var run = el("div", "run");
+        run.appendChild(el("div", "head"));
+        arr(r.items).forEach(function (item, i) {
+          var row = el("div", "row");
+          row.appendChild(el("span", "goalText"));
+          if (!item.done && !r.outcome) {
+            row.appendChild(btn("Tick", "", function () { call("objectives", { id: r.id, what: "tick", index: i + 1 }); }));
+          }
+          run.appendChild(row);
+        });
+        if (!r.outcome) {
+          var buttons = el("div", "row");
+          [["complete", "Complete"], ["fail", "Fail"], ["end", "End quietly"]].forEach(function (b) {
+            buttons.appendChild(btn(b[1], "", function () { call("objectives", { id: r.id, what: b[0] }); }));
+          });
+          run.appendChild(buttons);
+        }
+        box.appendChild(run);
+      });
+    }
+    runs.forEach(function (r, n) {
+      var run = box.children[n];
+      run.querySelector(".head").textContent = r.name + "  (" + r.players + (r.players === 1 ? " player)" : " players)") +
+        (r.time ? "  " + r.time : "") + (r.outcome ? "  " + r.outcome : "");
+      var texts = run.querySelectorAll(".goalText");
+      arr(r.items).forEach(function (item, i) {
+        texts[i].textContent = (item.done ? "Done: " : item.active ? "" : "Later: ") + item.text + (item.note ? "  " + item.note : "");
+      });
+    });
   }
 
   /* --------------------------------------------------------------- editors */
+  var goalTypes = [["enemies", "Defeat the enemies"], ["kill", "Kill a number"], ["boss", "Defeat the boss"],
+    ["reach", "Reach a place"], ["hold", "Hold an area"], ["survive", "Survive"], ["custom", "Custom, ticked by staff"]];
+  function newGoal(type, text) {
+    var g = { type: type };
+    if (text) g.text = text;
+    if (type === "kill") g.count = 5;
+    if (type === "hold" || type === "survive") g.seconds = 60;
+    if (type === "reach" || type === "hold") { g.size = 8; g.distance = 0; g.direction = 0; }
+    if (type === "hold") g.players = 1;
+    return g;
+  }
   var blank = {
     boss: function () { return { name: "", record: "", health: 5, height: 2.4, scaling: true }; },
     squad: function () { return { name: "", units: [], pattern: "ring", radius: 6 }; },
@@ -200,7 +253,8 @@
       var first = arr(state.avModels)[0];
       return { name: "", record: first ? first.record : "", distance: 110, height: 70, flightSeconds: 5, direction: 0,
         blastRadius: 12, blastDamage: 0, fireSeconds: 90 };
-    }
+    },
+    objectives: function () { return { name: "", radius: 60, items: [newGoal("enemies")], ordered: true, timeLimit: 0 }; }
   };
   function summary(kind, d) {
     if (kind === "squad") {
@@ -212,6 +266,10 @@
       if (d.squadId) with_.push((original("squad", d.squadId) || { name: "missing squad" }).name);
       if (d.bossId) with_.push(d.bossId === "chimera" ? "Chimera" : (original("boss", d.bossId) || { name: "missing boss" }).name);
       return short(d.record) + (with_.length ? ", with " + with_.join(" and ") : "");
+    }
+    if (kind === "objectives") {
+      var n = arr(d.items).length;
+      return n + (n === 1 ? " objective, " : " objectives, ") + d.radius + " m";
     }
     return short(d.record) + (kind === "boss" ? ", " + d.health + "x health" : "");
   }
@@ -225,6 +283,7 @@
       var b = btn(d.name + (d.builtin ? "  (built in)" : ""), "item" + (on ? " on" : ""), function () {
         drafts[kind] = JSON.parse(JSON.stringify(d));
         if (kind === "squad") drafts[kind].units = arr(drafts[kind].units);
+        if (kind === "objectives") drafts[kind].items = arr(drafts[kind].items);
         renderKind(kind);
       });
       b.appendChild(el("small", "", summary(kind, d)));
@@ -286,6 +345,68 @@
     return s < 90 ? "about " + s + " s solo" : "about " + (s / 60).toFixed(1) + " min solo";
   }
 
+  function presetOptions(kind, none, id, what) { // a deleted preset stays visible instead of silently changing
+    var list = [["", none]].concat(arr(state[kind]).map(function (p) { return [p.id, p.name]; }));
+    if (id && !list.some(function (o) { return o[0] === id; })) list.push([id, "Missing " + what]);
+    return list;
+  }
+  function objectivesField(box, d, note) {
+    d.objectivesId = d.objectivesId || "";
+    box.appendChild(field("Objectives", choice(d, "objectivesId",
+      presetOptions("objectives", "No objectives", d.objectivesId, "objectives"))));
+    if (note) box.appendChild(el("p", "dim", note));
+  }
+  function tickBox(d, key) {
+    var i = el("input");
+    i.type = "checkbox"; i.checked = d[key] === true;
+    i.addEventListener("change", function () { if (i.checked) d[key] = true; else delete d[key]; });
+    return i;
+  }
+  function goalEditor(box, d, redraw) {
+    box.appendChild(field("Radius, m", numberInput(d, "radius", 10, 250, 5)));
+    box.appendChild(el("p", "dim", "Players inside this distance get the objectives. Progress is shared."));
+    var order = { mode: d.ordered === false ? "all" : "order" };
+    var orderSelect = choice(order, "mode", [["order", "One after another"], ["all", "All at once"]]);
+    orderSelect.addEventListener("change", function () { d.ordered = order.mode === "order"; });
+    box.appendChild(field("Objectives are given", orderSelect));
+    box.appendChild(el("h2", "", "Objectives: " + d.items.length + " of 8"));
+    d.items.forEach(function (g, i) {
+      var card = el("div", "goal"), row = el("div", "row");
+      var pickType = choice(g, "type", goalTypes);
+      pickType.addEventListener("change", function () { d.items[i] = newGoal(g.type, g.text); redraw(); });
+      row.appendChild(pickType);
+      var up = btn("Up", "", function () { d.items.splice(i - 1, 0, d.items.splice(i, 1)[0]); redraw(); });
+      up.disabled = i === 0;
+      row.appendChild(up);
+      var remove = btn("Remove", "", function () { d.items.splice(i, 1); redraw(); });
+      remove.disabled = d.items.length === 1;
+      row.appendChild(remove);
+      card.appendChild(row);
+      card.appendChild(field("Text players see", textInput(g, "text", 80)));
+      if (g.type === "kill") card.appendChild(field("How many", numberInput(g, "count", 1, 100, 1)));
+      if (g.type === "hold" || g.type === "survive") card.appendChild(field("Seconds", numberInput(g, "seconds", 5, 1800, 5)));
+      if (g.type === "hold") card.appendChild(field("Players needed", numberInput(g, "players", 1, 16, 1)));
+      if (g.type === "reach" || g.type === "hold") {
+        card.appendChild(field("Size of the spot, m", numberInput(g, "size", 2, 50, 1)));
+        card.appendChild(field("Distance from centre, m", numberInput(g, "distance", 0, 250, 5)));
+        card.appendChild(field("Direction, degrees", numberInput(g, "direction", -180, 180, 15)));
+      }
+      box.appendChild(card);
+    });
+    var add = btn("Add objective", "", function () { d.items.push(newGoal("reach")); redraw(); });
+    add.disabled = d.items.length >= 8;
+    box.appendChild(add);
+    box.appendChild(el("p", "dim", "Empty text uses the usual wording. Direction 0 is straight ahead of you, 90 is to your right. A spot never lies outside the radius."));
+    box.appendChild(el("h2", "", "Ending"));
+    box.appendChild(field("Time limit, s (0 = none)", numberInput(d, "timeLimit", 0, 7200, 30)));
+    box.appendChild(field("Fail if everyone is down", tickBox(d, "failOnWipe")));
+    box.appendChild(el("h2", "", "Announcements to the whole server"));
+    box.appendChild(field("When it starts", textInput(d, "intro", 160)));
+    box.appendChild(field("When completed", textInput(d, "success", 160)));
+    box.appendChild(field("When failed", textInput(d, "failure", 160)));
+    box.appendChild(el("p", "dim", "Leave empty to say nothing. Players taking part always see the result."));
+  }
+
   function renderEditor(kind) {
     var box = document.querySelector('[data-editor="' + kind + '"]'), d = drafts[kind];
     var redraw = function () { renderEditor(kind); };
@@ -303,6 +424,7 @@
       tick.type = "checkbox"; tick.checked = d.scaling !== false;
       tick.addEventListener("change", function () { d.scaling = tick.checked; });
       box.appendChild(field("Scale with players", tick));
+      objectivesField(box, d);
       box.appendChild(field("Arrival message", textInput(d, "intro", 160)));
       box.appendChild(field("Defeat message", textInput(d, "outro", 160)));
       box.appendChild(el("p", "dim", "Leave empty to use the server's usual messages."));
@@ -323,6 +445,9 @@
       });
       add.disabled = d.units.length >= 8;
       box.appendChild(add);
+      objectivesField(box, d);
+    } else if (kind === "objectives") {
+      goalEditor(box, d, redraw);
     } else {
       box.appendChild(field("AV", choice(d, "record", arr(state.avModels).map(function (m) {
         return [m.record, m.name + (m.tested ? "" : " (untested)")];
@@ -336,19 +461,16 @@
       box.appendChild(el("p", "dim", "Angle 0 comes from your left. Blast damage above 0 hurts players in the radius."));
 
       box.appendChild(el("h2", "", "Who comes with it"));
-      var options = function (kind2, none) {
-        return [["", none]].concat(arr(state[kind2]).map(function (p) { return [p.id, p.name]; }));
-      };
-      var keep = function (list, id, what) { // a deleted preset stays visible instead of silently changing
-        if (id && !list.some(function (o) { return o[0] === id; })) list.push([id, "Missing " + what]);
-        return list;
-      };
       d.squadId = d.squadId || "";
       d.bossId = d.bossId || "";
-      var bosses = options("boss", "No boss");
-      if (state.chimera) bosses.push(["chimera", "Militech Chimera"]);
-      box.appendChild(field("Squad", choice(d, "squadId", keep(options("squad", "No squad"), d.squadId, "squad"))));
-      box.appendChild(field("Boss", choice(d, "bossId", keep(bosses, d.bossId, "boss"))));
+      var bosses = presetOptions("boss", "No boss", d.bossId, "boss");
+      if (state.chimera) {
+        bosses = bosses.filter(function (o) { return o[0] !== "chimera"; });
+        bosses.push(["chimera", "Militech Chimera"]);
+      }
+      box.appendChild(field("Squad", choice(d, "squadId", presetOptions("squad", "No squad", d.squadId, "squad"))));
+      box.appendChild(field("Boss", choice(d, "bossId", bosses)));
+      objectivesField(box, d, "Objectives begin at impact.");
       if (d.spawnDelay === undefined) d.spawnDelay = 3;
       box.appendChild(field("Seconds after impact", numberInput(d, "spawnDelay", 0, 60, 1)));
       box.appendChild(field("Message when they arrive", textInput(d, "arrival", 160)));
@@ -364,7 +486,7 @@
 
     var row = el("div", "row");
     var saved = d.id && JSON.stringify(strip(d)) === JSON.stringify(strip(original(kind, d.id)));
-    row.appendChild(btn("Spawn", "main", function () {
+    row.appendChild(btn(kind === "objectives" ? "Start" : "Spawn", "main", function () {
       // Unchanged presets go by id, which needs no editor right.
       var unchanged = d.id && JSON.stringify(strip(d)) === JSON.stringify(strip(original(kind, d.id)));
       if (unchanged) return spawn(kind, d, { id: d.id });
@@ -395,6 +517,11 @@
     var out = {};
     Object.keys(d || {}).sort().forEach(function (k) { if (k !== "id" && k !== "builtin" && d[k] !== "" && !(k === "spawnDelay" && d[k] === 3)) out[k] = d[k]; });
     if (out.units) out.units = arr(out.units).map(function (u) { return { record: u.record, count: u.count }; });
+    if (out.items) out.items = arr(out.items).map(function (g) {
+      var item = {};
+      Object.keys(g).sort().forEach(function (k) { if (g[k] !== "") item[k] = g[k]; });
+      return item;
+    });
     return out;
   }
   function original(kind, id) { return arr(state[kind]).filter(function (p) { return p.id === id; })[0]; }
@@ -405,7 +532,7 @@
     var tab = document.querySelector('[data-tab="chimera"]');
     tab.style.display = state.chimera ? "" : "none";
     if (!state.chimera && tab.classList.contains("on")) document.querySelector('[data-tab="live"]').click();
-    ["boss", "squad", "av"].forEach(renderKind);
+    ["boss", "squad", "av", "objectives"].forEach(renderKind);
     var box = $("scenes");
     box.textContent = "";
     arr(state.scenes).forEach(function (s) {

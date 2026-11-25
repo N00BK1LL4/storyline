@@ -33,6 +33,31 @@ An AV crash preset can bring a squad, a boss or the Chimera with it, a few secon
 after impact, with its own warning, arrival message and camera shot. It refers to
 your saved presets, so editing a squad changes every crash that uses it.
 
+## Objectives
+
+Make objective sets in the panel's **Objectives** tab and start them on their own, or
+attach them to a boss, squad or AV crash. Players who enter the radius get an on-screen
+tracker and a map marker. Progress is shared. A set started on its own uses event NPCs
+already standing in its radius.
+
+Types: defeat the enemies, kill a number, defeat the boss, reach a place, hold an area,
+survive, and custom (staff tick it in the **Live** tab). Starting sets needs
+`command.gm.objectives`, which `command.gm.*` includes.
+
+Rewards are yours to give. A server script in any resource can listen:
+
+```lua
+AddEventHandler("gm_events:objectives", function(e)
+    if e.phase ~= "completed" then return end
+    for _, p in ipairs(e.players) do -- everyone who took part
+        if p.seconds >= 30 then MyEconomy.pay(p.id, 500) end
+    end
+end)
+```
+
+`e.phase` is started, entered, left, objective, completed, failed or ended (stopped by
+staff, no result). Only players still online are listed.
+
 ## Announcements
 
 Use the panel's **Announcements** tab (needs `gm_events.edit`) or Warden's Tuning

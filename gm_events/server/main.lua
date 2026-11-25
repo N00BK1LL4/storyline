@@ -169,7 +169,9 @@ local function spawnNpc(anchor, record, dx, dy, opts)
         maxHealth = 100,
     })
     if not id then return nil, reason end
-    npcs[tostring(id)] = { id = id, name = opts.name, boss = opts.boss, height = opts.height, outro = opts.outro }
+    local entry = { id = id, name = opts.name, boss = opts.boss, height = opts.height, outro = opts.outro, event = anchor.event }
+    npcs[tostring(id)] = entry
+    GM.objectiveEnemy(entry)
     -- create only promises a server record: say so when no game ever shows the body.
     local ready = Open77.npcs.whenReady(id, 15000)
     if ready then
@@ -184,6 +186,14 @@ local function spawnNpc(anchor, record, dx, dy, opts)
         end, function(why)
             if npcs[tostring(id)] then
                 reply(anchor.source, nil, false, label .. " (" .. record .. ") never appeared: " .. tostring(why))
+                -- Objectives leave it out until some game does show it.
+                local function waitForBody()
+                    if npcs[tostring(id)] ~= entry then return end
+                    entry.missing = true
+                    local again = Open77.npcs.whenReady(id, 30000)
+                    if again then again:next(function() entry.missing = nil end, function() SetTimeout(1000, waitForBody) end) end
+                end
+                waitForBody()
             end
         end)
     end
@@ -336,9 +346,10 @@ function actions.chimera(anchor, step)
     if not state then return false, "Chimera refused: " .. tostring(reason) end
     local n = {
         id = state.id, name = def.name, boss = true, chimera = true, height = def.height,
-        baseHealth = def.health, baseDamage = def.damage, players = players, noScale = noScale,
+        baseHealth = def.health, baseDamage = def.damage, players = players, noScale = noScale, event = anchor.event,
     }
     npcs[tostring(state.id)] = n
+    GM.objectiveEnemy(n)
     for playerId in pairs(ghosts) do
         local ok, why = setNpcAttitude(n, playerId, "friendly")
         if not ok then print("[gm] attitude refused: " .. tostring(why)) end
@@ -532,24 +543,39 @@ function actions.av(anchor, step)
         reply(anchor.source, nil, true, ("AV down after %d position updates (waited %d ms to stream)"):format(moved, waited))
 
         -- Whoever came with the crash. The panel resolved these when it started.
-        if not (c.squadDef or c.bossDef or c.withChimera) then return end
+        local brings = c.squadDef or c.bossDef or c.withChimera
+        local run
+        if c.objectivesDef then
+            local why2
+            run, why2 = GM.startObjectives(anchor, c.objectivesDef, true)
+            if not run then reply(anchor.source, nil, false, "objectives: " .. tostring(why2)) end
+        end
+        if not brings then
+            if run then GM.objectivesReady(run) end
+            return
+        end
         Wait(math.floor((c.spawnDelay or 3) * 1000))
         if myRun ~= runId then return end
+        local site = { -- a copy: the mark itself must not carry the event
+            x = anchor.x, y = anchor.y, z = anchor.z, heading = anchor.heading,
+            bucket = anchor.bucket, source = anchor.source, event = run,
+        }
         GM.say("scene", c.arrival or GM.msgCrashSurvivors)
         local function report(what, ok, why)
             if not ok then reply(anchor.source, nil, false, what .. ": " .. tostring(why)) end
         end
-        if c.squadDef then report("crash squad", actions.squad(anchor, { def = c.squadDef })) end
+        if c.squadDef then report("crash squad", actions.squad(site, { def = c.squadDef })) end
         if c.bossDef or c.withChimera then
             -- clear of the wreck, on the side the staff member was facing from
             local a, d = math.rad(anchor.heading), c.withChimera and 14 or 8
             local beside = {
                 x = anchor.x + math.sin(a) * d, y = anchor.y - math.cos(a) * d, z = anchor.z,
-                heading = anchor.heading, bucket = anchor.bucket, source = anchor.source,
+                heading = anchor.heading, bucket = anchor.bucket, source = anchor.source, event = run,
             }
             if c.bossDef then report("crash boss", actions.boss(beside, { def = c.bossDef })) end
             if c.withChimera then report("crash Chimera", actions.chimera(beside, {})) end
         end
+        if run then GM.objectivesReady(run) end
     end)
     return true
 end
@@ -566,6 +592,7 @@ local function cleanup()
     for _, id in ipairs(fires) do Open77.effects.removeFire(id) end
     npcs, vehicles, fires = {}, {}, {}
     clearBursts()
+    GM.clearObjectives()
     TriggerClientEvent("gm_events:release", -1)
 end
 
@@ -604,7 +631,7 @@ end
 command("gm.help", function()
     return true, "gm.mark, gm.unmark, gm.announce <text>, gm.boss <" .. names(GM.bosses)
         .. ">, gm.wave <n>, gm.av, gm.boom, gm.fire <sec>, gm.cinematic <sec>, gm.scene <"
-        .. names(GM.scenes) .. ">, gm.chimera, gm.gas, gm.status, gm.killboss, gm.bring, gm.clean, gm.ghost [on|off], gm.panel, gm.check, gm.stop"
+        .. names(GM.scenes) .. ">, gm.chimera, gm.gas, gm.status, gm.killboss, gm.bring, gm.clean, gm.objectives, gm.ghost [on|off], gm.panel, gm.check, gm.stop"
 end)
 
 command("gm.ghost", function(source, args)
@@ -755,7 +782,7 @@ end)
 AddEventHandler("onNpcDamaged", function(npcId, _, amount, health)
     local n = npcs[tostring(npcId)]
     if not n then return end
-    n.hits = (n.hits or 0) + 1
+    n.hits, n.missing = (n.hits or 0) + 1, nil
     n.dealt = (n.dealt or 0) + (tonumber(amount) or 0)
     local hp = tonumber(health)
     if not n.boss or not hp or hp <= 0 then return end
@@ -806,6 +833,7 @@ end)
 local function onDefeat(key, n)
     if n.settled then return end
     n.settled = true
+    GM.objectiveDeath(n)
     if n.boss then announceBoss("bossDefeated", n.outro or GM.msgBossDefeated, n) end
     if n.chimera and GM.deathWreckSeconds == 0 then return end -- stays until gm.clean or gm.stop
     SetTimeout((n.chimera and GM.deathWreckSeconds or GM.corpseSeconds) * 1000, function()

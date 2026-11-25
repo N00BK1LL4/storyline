@@ -49,11 +49,43 @@ end
 
 local clean = {}
 
+local DEFAULT_SIZE = 8
+function clean.objectives(d)
+    local name = text(d.name, 32)
+    if not name then return nil, "set name: 1 to 32 characters" end
+    local radius = math.floor(number(d.radius, 10, 250, 60))
+    local items = {}
+    if type(d.items) == "table" then
+        for i = 1, math.min(#d.items, 8) do
+            local o = d.items[i]
+            if type(o) ~= "table" or not GM.objectiveTypes[o.type] then return nil, "objective " .. i .. ": choose a type" end
+            local item = { type = o.type, text = text(o.text, 80) }
+            if o.type == "custom" and not item.text then return nil, "objective " .. i .. ": write what players must do" end
+            if o.type == "kill" then item.count = math.floor(number(o.count, 1, 100, 5)) end
+            if o.type == "hold" or o.type == "survive" then item.seconds = math.floor(number(o.seconds, 5, 1800, 60)) end
+            if o.type == "reach" or o.type == "hold" then
+                item.size = number(o.size, 2, 50, DEFAULT_SIZE)
+                item.distance = number(o.distance, 0, radius, 0)
+                item.direction = number(o.direction, -180, 180, 0)
+            end
+            if o.type == "hold" then item.players = math.floor(number(o.players, 1, 16, 1)) end
+            items[i] = item
+        end
+    end
+    if #items == 0 then return nil, "add at least one objective" end
+    return {
+        name = name, radius = radius, items = items, ordered = d.ordered ~= false,
+        timeLimit = math.floor(number(d.timeLimit, 0, 7200, 0)), failOnWipe = d.failOnWipe == true or nil,
+        intro = text(d.intro, 160), success = text(d.success, 160), failure = text(d.failure, 160),
+    }
+end
+
 function clean.boss(d)
     local name, record = text(d.name, 32), character(d.record)
     if not name then return nil, "boss name: 1 to 32 characters" end
     if not record then return nil, "choose a boss model" end
     return {
+        objectivesId = presetId(d.objectivesId),
         name = name, record = record,
         health = number(d.health, 0.1, 100, 5),
         height = number(d.height, 1, 8, 2.4),
@@ -78,7 +110,8 @@ function clean.squad(d)
     if total == 0 then return nil, "add at least one unit" end
     if total > GM.maxSquad then return nil, ("%d units: the limit is %d"):format(total, GM.maxSquad) end
     local pattern = (d.pattern == "line" or d.pattern == "cluster") and d.pattern or "ring"
-    return { name = name, units = units, pattern = pattern, radius = number(d.radius, 2, 20, 6) }
+    return { name = name, units = units, pattern = pattern, radius = number(d.radius, 2, 20, 6),
+        objectivesId = presetId(d.objectivesId) }
 end
 
 function clean.av(d)
@@ -95,6 +128,7 @@ function clean.av(d)
         blastDamage = number(d.blastDamage, 0, 500, 0),
         fireSeconds = number(d.fireSeconds, 0, 300, 90),
         squadId = presetId(d.squadId), bossId = presetId(d.bossId), -- nil: nobody
+        objectivesId = presetId(d.objectivesId),
         spawnDelay = number(d.spawnDelay, 0, 60, 3),
         cinematic = d.cinematic == true or nil,
         warning = text(d.warning, 160), arrival = text(d.arrival, 160),
@@ -103,7 +137,7 @@ end
 
 -- ------------------------------------------------------------------- presets
 
-local presets = { boss = {}, squad = {}, av = {} } -- kind -> id -> def
+local presets = { boss = {}, squad = {}, av = {}, objectives = {} } -- kind -> id -> def
 local status = {}                                  -- record -> "tested" | "broken"
 local shipped = {}
 for _, record in ipairs(GM.testedModels) do shipped[record] = "tested" end
@@ -145,6 +179,19 @@ local function listOf(kind)
             id = "builtin:default", builtin = true, name = "Standard crash", record = GM.av.record,
             distance = GM.av.distance, height = GM.av.height, flightSeconds = GM.av.flightSeconds, direction = 0,
             blastRadius = GM.av.blastRadius, blastDamage = GM.av.blastDamage, fireSeconds = GM.av.fireSeconds,
+        }
+    end
+    if kind == "objectives" then
+        list[#list + 1] = {
+            id = "builtin:clear", builtin = true, name = "Clear the area", radius = 60, ordered = true, timeLimit = 0,
+            items = { { type = "enemies" } },
+        }
+        list[#list + 1] = {
+            id = "builtin:hold", builtin = true, name = "Hold the ground", radius = 60, ordered = true, timeLimit = 0,
+            items = {
+                { type = "reach", size = 8, distance = 0, direction = 0 },
+                { type = "hold", seconds = 60, size = 15, distance = 0, direction = 0, players = 1 },
+            },
         }
     end
     if kind == "squad" then
@@ -204,7 +251,7 @@ local function sendState(playerId)
         for key in pairs(GM.announceKeys) do values[key] = GM[key] end
         send(playerId, "gm_events:panel:state", { part = "announce", announce = values })
     end
-    for _, kind in ipairs({ "boss", "squad", "av" }) do
+    for _, kind in ipairs({ "boss", "squad", "av", "objectives" }) do
         send(playerId, "gm_events:panel:state", { part = kind, [kind] = listOf(kind) })
     end
 end
@@ -233,6 +280,7 @@ local function sendLive(playerId)
     end
     send(playerId, "gm_events:panel:live", {
         bosses = bosses, hostiles = hostiles, players = players,
+        objectives = GM.objectiveList(),
         ghost = core.isGhost(playerId), mark = core.mark(playerId) ~= nil,
     })
 end
@@ -270,7 +318,8 @@ end
 -- ------------------------------------------------------------------- actions
 
 -- op -> the typed command whose right it needs
-local spawnRight = { boss = "command.gm.boss", squad = "command.gm.wave", av = "command.gm.av" }
+local spawnRight = { boss = "command.gm.boss", squad = "command.gm.wave", av = "command.gm.av",
+    objectives = "command.gm.objectives" }
 local function spawnDistance(kind)
     return kind == "boss" and GM.npcDistance or kind == "squad" and GM.npcDistance + 6 or GM.eventDistance
 end
@@ -307,7 +356,29 @@ local function attach(playerId, def)
     return true
 end
 
+local function attachObjectives(playerId, def, comes)
+    if not def.objectivesId then return true end
+    if not allowed(playerId, spawnRight.objectives) then return nil, "you need " .. spawnRight.objectives end
+    local found = find("objectives", def.objectivesId)
+    local set, bad = nil, "the attached objectives no longer exist"
+    if found then set, bad = clean.objectives(found) end
+    if not set then return nil, bad end
+    local never = GM.objectivesImpossible(set, comes)
+    if never then return nil, set.name .. ": " .. never end
+    local can, full = GM.canStartObjectives()
+    if not can then return nil, full end
+    def.objectivesDef = set
+    return true
+end
+
 local ops = {}
+
+function ops.objectives(playerId, d)
+    if not allowed(playerId, spawnRight.objectives) then return false, "you need " .. spawnRight.objectives end
+    local ok, reason = GM.controlObjectives(d.id, d.what, d.index)
+    if ok then print(("[gm] player %d: %s"):format(playerId, reason)) end
+    return ok, reason
+end
 
 -- Spawn a saved preset, or an unsaved draft from the editor.
 function ops.spawn(playerId, d)
@@ -329,9 +400,26 @@ function ops.spawn(playerId, d)
         local attached, missing = attach(playerId, def)
         if not attached then return false, missing end
     end
+    local boss = d.kind == "boss" or def.bossDef ~= nil or def.withChimera == true
+    local linked, notLinked = attachObjectives(playerId, def, { boss = boss, enemies = boss or d.kind == "squad" or def.squadDef ~= nil })
+    if not linked then return false, notLinked end
     local anchor, why = target(playerId, d, spawnDistance(d.kind))
     if not anchor then return false, why end
+    -- A crash starts its own at impact; a boss or squad starts them with itself.
+    local run
+    if def.objectivesDef and d.kind ~= "av" then
+        local problem
+        run, problem = GM.startObjectives(anchor, def.objectivesDef, true)
+        if not run then return false, problem end
+        local copy = {} -- the staff member's mark must not carry the event
+        for k, v in pairs(anchor) do copy[k] = v end
+        copy.event = run
+        anchor = copy
+    end
     local ok, reason = core.actions[d.kind](anchor, { def = def })
+    if run then
+        if ok then GM.objectivesReady(run) else GM.cancelObjectives(run) end
+    end
     return ok, reason or (def.name .. " started")
 end
 
@@ -542,5 +630,5 @@ CreateThread(function()
 end)
 
 load()
-print(("gm_events panel ready: %d boss, %d squad, %d AV presets"):format(
-    count(presets.boss), count(presets.squad), count(presets.av)))
+print(("gm_events panel ready: %d boss, %d squad, %d AV, %d objective presets"):format(
+    count(presets.boss), count(presets.squad), count(presets.av), count(presets.objectives)))

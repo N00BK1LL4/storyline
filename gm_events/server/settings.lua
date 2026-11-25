@@ -66,6 +66,8 @@ local Tune = Open77.tunables.declare({
         label = "Chimera: core", description = "Sent when the core phase begins. - turns it off." },
     announceBosses = { value = true, type = "boolean", apply = "live", group = "Announcements", order = 1,
         label = "Announce bosses", description = "Tells everyone when a boss appears, drops a quarter of its health or dies." },
+    objectiveGrace = { value = 10, type = "integer", min = 0, max = 120, unit = "s", apply = "live", group = "Objectives", order = 1,
+        label = "Time to return", description = "How long a player may be outside the area before the objectives are taken off their screen." },
     npcDistance = { value = 6, type = "integer", min = 3, max = 40, unit = "m", apply = "live", group = "Placement", order = 1,
         label = "Boss distance", description = "How far in front of staff a boss appears." },
     eventDistance = { value = 25, type = "integer", min = 5, max = 100, unit = "m", apply = "live", group = "Placement", order = 2,
@@ -82,7 +84,7 @@ local Tune = Open77.tunables.declare({
 
 -- The rest of the code keeps reading GM.<name>; each read goes to the live value.
 local live = {
-    npcDistance = true, eventDistance = true, audienceRadius = true, bossBarRadius = true,
+    objectiveGrace = true, npcDistance = true, eventDistance = true, audienceRadius = true, bossBarRadius = true,
     maxSquad = true, corpseSeconds = true, mapMarker = true, announceBosses = true,
 }
 for _, key in ipairs({ "announceMethod", "announceResource", "announceExport", "announceTitle", "announceSeconds",

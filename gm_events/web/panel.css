@@ -46,6 +46,10 @@ section.on { display: flex; }
 .bar { margin-bottom: 10px; }
 .bar .track { height: 8px; background: #ffffff1c; }
 .bar .fill { height: 8px; background: var(--accent); }
+.run { border-left: 3px solid var(--warn); padding-left: 10px; margin-bottom: 12px; }
+.run .row { margin: 4px 0; }
+.run .row span { flex: 1; }
+.goal { border: 1px solid var(--line); padding: 10px 12px; margin-bottom: 10px; }
 .tag { font-size: 13px; padding: 1px 7px; border: 1px solid currentColor; }
 .tag.tested { color: var(--good); }
 .tag.candidate { color: var(--dim); }

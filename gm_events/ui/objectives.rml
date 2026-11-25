@@ -1,0 +1,21 @@
+<rml>
+<head>
+    <title>GM objectives</title>
+    <link type="text/rcss" href="nui://open77/open77.rcss"/>
+    <link type="text/rcss" href="objectives.rcss"/>
+</head>
+<body data-model="objectives">
+<div id="root" data-class-on="active" data-class-won="won" data-class-lost="lost" data-class-away="away">
+    <div id="head">
+        <span id="title">{{title}}</span>
+        <span id="time" data-if="hasTime">{{time}}</span>
+    </div>
+    <div class="item" data-for="item : items" data-class-done="item.done">
+        <div class="box"></div>
+        <span class="text">{{item.text}}</span>
+        <span class="note">{{item.note}}</span>
+    </div>
+    <div id="status" data-if="hasStatus">{{status}}</div>
+</div>
+</body>
+</rml>
