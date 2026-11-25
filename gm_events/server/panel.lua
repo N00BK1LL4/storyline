@@ -41,6 +41,11 @@ end
 
 local avNames = {}
 for _, av in ipairs(GM.avModels) do avNames[av.record] = true end
+local fallNames = {}
+for _, body in ipairs(GM.fallModels) do
+    fallNames[body.record] = true
+    avNames[body.record] = true -- notes are shared; clean.fall checks its own list
+end
 
 -- A reference to a saved or built-in preset.
 local function presetId(value)
@@ -144,7 +149,7 @@ end
 function clean.av(d)
     local name = text(d.name, 32)
     if not name then return nil, "crash name: 1 to 32 characters" end
-    if not avNames[d.record] then return nil, "choose an AV" end
+    if not avNames[d.record] or fallNames[d.record] then return nil, "choose an AV" end
     return {
         name = name, record = d.record,
         distance = number(d.distance, 40, 200, 110),
@@ -162,9 +167,27 @@ function clean.av(d)
     }
 end
 
+function clean.fall(d)
+    local name = text(d.name, 32)
+    if not name then return nil, "name: 1 to 32 characters" end
+    if not fallNames[d.record] then return nil, "choose what falls" end
+    return {
+        name = name, record = d.record,
+        distance = number(d.distance, 0, 150, 60), height = number(d.height, 40, 250, 160),
+        flightSeconds = number(d.flightSeconds, 2, 15, 5), direction = number(d.direction, -180, 180, 0),
+        spin = number(d.spin, -720, 720, 120), intact = d.intact == true or nil,
+        blastRadius = number(d.blastRadius, 3, 40, 14), blastDamage = number(d.blastDamage, 0, 500, 0),
+        fireSeconds = number(d.fireSeconds, 0, 300, 60),
+        debris = math.floor(number(d.debris, 0, 12, 0)), debrisRadius = number(d.debrisRadius, 8, 60, 30),
+        squadId = presetId(d.squadId), bossId = presetId(d.bossId), objectivesId = presetId(d.objectivesId),
+        spawnDelay = number(d.spawnDelay, 0, 60, 3), warningLead = number(d.warningLead, 0, 60, 6),
+        cinematic = d.cinematic == true or nil, warning = text(d.warning, 160), arrival = text(d.arrival, 160),
+    }
+end
+
 -- ------------------------------------------------------------------- presets
 
-local presets = { boss = {}, squad = {}, av = {}, objectives = {}, loot = {} } -- kind -> id -> def
+local presets = { boss = {}, squad = {}, av = {}, fall = {}, objectives = {}, loot = {} } -- kind -> id -> def
 local status = {}                                  -- record -> "tested" | "broken"
 local shipped = {}
 for _, record in ipairs(GM.testedModels) do shipped[record] = "tested" end
@@ -201,6 +224,23 @@ local function listOf(kind)
                 health = b.health, height = b.height or 2.4, scaling = true,
             }
         end
+    end
+    if kind == "fall" then
+        list[#list + 1] = {
+            id = "builtin:satellite", builtin = true, name = "Falling satellite", record = "Vehicle.q115_satellite",
+            distance = 60, height = 160, flightSeconds = 5, direction = 0, spin = 120, blastRadius = 14, blastDamage = 0,
+            fireSeconds = 60, debris = 6, debrisRadius = 30,
+        }
+        list[#list + 1] = {
+            id = "builtin:capsule", builtin = true, name = "Orbital capsule", record = "Vehicle.q306_orbital_capsule",
+            distance = 60, height = 160, flightSeconds = 6, direction = 0, spin = 0, intact = true, blastRadius = 8,
+            blastDamage = 0, fireSeconds = 20, debris = 0, debrisRadius = 30,
+        }
+        list[#list + 1] = {
+            id = "builtin:crate", builtin = true, name = "Supply drop", record = "Vehicle.sa_ep1_airdrop_crate",
+            distance = 0, height = 120, flightSeconds = 7, direction = 0, spin = 0, intact = true, blastRadius = 4,
+            blastDamage = 0, fireSeconds = 0, debris = 0, debrisRadius = 30,
+        }
     end
     if kind == "av" then
         list[#list + 1] = {
@@ -284,7 +324,7 @@ local function sendState(playerId)
     table.sort(scenes)
     -- One message per part: the page merges them.
     send(playerId, "gm_events:panel:state", {
-        part = "base", scenes = scenes, avModels = GM.avModels,
+        part = "base", scenes = scenes, avModels = GM.avModels, fallModels = GM.fallModels,
         maxSquad = GM.maxSquad, canEdit = allowed(playerId, EDIT),
         chimera = GetResourceState("open77_chimera") == "running",
     })
@@ -302,7 +342,7 @@ local function sendState(playerId)
         for key in pairs(GM.announceKeys) do values[key] = GM[key] end
         send(playerId, "gm_events:panel:state", { part = "announce", announce = values })
     end
-    for _, kind in ipairs({ "boss", "squad", "av", "objectives", "loot" }) do
+    for _, kind in ipairs({ "boss", "squad", "av", "fall", "objectives", "loot" }) do
         send(playerId, "gm_events:panel:state", { part = kind, [kind] = listOf(kind) })
     end
 end
@@ -369,7 +409,7 @@ end
 -- ------------------------------------------------------------------- actions
 
 -- op -> the typed command whose right it needs
-local spawnRight = { boss = "command.gm.boss", squad = "command.gm.wave", av = "command.gm.av",
+local spawnRight = { boss = "command.gm.boss", squad = "command.gm.wave", av = "command.gm.av", fall = "command.gm.fall",
     objectives = "command.gm.objectives" }
 local function spawnDistance(kind)
     return kind == "boss" and GM.npcDistance or kind == "squad" and GM.npcDistance + 6 or GM.eventDistance
@@ -478,7 +518,8 @@ function ops.spawn(playerId, d)
     end
     local def, bad = clean[d.kind](source)
     if not def then return false, bad end
-    if d.kind == "av" then
+    local lands = d.kind == "av" or d.kind == "fall"
+    if lands then
         local attached, missing = attach(playerId, def)
         if not attached then return false, missing end
     end
@@ -490,7 +531,7 @@ function ops.spawn(playerId, d)
     local anchor, why = target(playerId, d, spawnDistance(d.kind))
     if not anchor then return false, why end
     -- A crash starts its own at impact; a boss or squad starts them with itself.
-    local ok, reason = withObjectives(anchor, d.kind ~= "av" and def.objectivesDef or nil, core.actions[d.kind], { def = def })
+    local ok, reason = withObjectives(anchor, not lands and def.objectivesDef or nil, core.actions[d.kind], { def = def })
     return ok, reason or (def.name .. " started")
 end
 
@@ -751,5 +792,5 @@ CreateThread(function()
 end)
 
 load()
-print(("gm_events panel ready: %d boss, %d squad, %d AV, %d objective, %d loot presets"):format(
-    count(presets.boss), count(presets.squad), count(presets.av), count(presets.objectives), count(presets.loot)))
+print(("gm_events panel ready: %d boss, %d squad, %d AV, %d falling, %d objective, %d loot presets"):format(
+    count(presets.boss), count(presets.squad), count(presets.av), count(presets.fall), count(presets.objectives), count(presets.loot)))

@@ -7,9 +7,9 @@ local bursts = {}   -- effect id -> true: short effects, each with its own end
 
 -- A short effect that always ends. Never use Open77.effects.play for these: a
 -- one-shot has no handle, so an effect that loops stays in the world for good.
-function GM.burst(effect, position, bucket, seconds)
+function GM.burst(effect, position, bucket, seconds, radius)
     local id, why = Open77.effects.create({
-        effect = effect, bucket = bucket, streamingRadius = 250, ttlMs = math.floor(seconds * 1000),
+        effect = effect, bucket = bucket, streamingRadius = radius or 250, ttlMs = math.floor(seconds * 1000),
         position = { x = position.x, y = position.y, z = position.z },
     })
     if not id then return print("[gm] effect refused: " .. effect .. " " .. tostring(why)) end
@@ -478,7 +478,7 @@ function actions.av(anchor, step)
                 local ok, why = actions.av(anchor, { def = c, warned = true })
                 if not ok then reply(anchor.source, nil, false, tostring(why)) end
             end)
-            return true, ("warning sent, AV in %d s"):format(math.floor(lead))
+            return true, ("warning sent, %s in %d s"):format(c.fall and "impact" or "AV", math.floor(lead))
         end
     end
     local heading = anchor.heading + (c.direction or 0)
@@ -489,7 +489,7 @@ function actions.av(anchor, step)
         x = anchor.x - fx * c.distance, y = anchor.y - fy * c.distance, z = anchor.z + c.height,
     }
     local id, reason = Open77.vehicles.create({
-        record = c.record, position = start, yaw = yaw, bucket = anchor.bucket, ttlMs = 10 * 60 * 1000,
+        record = c.record, position = start, yaw = yaw, bucket = anchor.bucket, ttlMs = (c.fall and c.intact and 60 or 10) * 60 * 1000,
     })
     if not id then return false, "AV refused: " .. tostring(reason) end
     vehicles[id] = true
@@ -510,7 +510,7 @@ function actions.av(anchor, step)
             if myRun ~= runId then return end
         end
         if not vehicleSeen(id, anchor.bucket) then
-            reply(anchor.source, nil, false, "AV never streamed to a player")
+            reply(anchor.source, nil, false, (c.fall and c.name or "AV") .. " never streamed to a player")
         end
         Wait(c.loadMs)
 
@@ -527,17 +527,27 @@ function actions.av(anchor, step)
             local elapsed = GetGameTimer() - began
             local t = math.min(1, elapsed / total)
             local drop = t * t -- level at first, then a steepening dive
+            local along = t
+            if c.fall then -- a straight, accelerating plunge
+                along = t ^ 1.4
+                drop = along
+            end
             local pos = {
-                x = start.x + (anchor.x - start.x) * t,
-                y = start.y + (anchor.y - start.y) * t,
-                z = start.z + (anchor.z + 1 - start.z) * drop,
+                x = start.x + (anchor.x - start.x) * along,
+                y = start.y + (anchor.y - start.y) * along,
+                z = start.z + (anchor.z + (c.fall and 0.3 or 1) - start.z) * drop,
             }
-            if not Open77.vehicles.setTransform(id, { x = pos.x, y = pos.y, z = pos.z, yaw = yaw }) then
+            local facing = yaw + (c.fall and (1 - t) * (c.spin or 0) or 0)
+            if not Open77.vehicles.setTransform(id, { x = pos.x, y = pos.y, z = pos.z, yaw = facing }) then
                 reply(anchor.source, nil, false, "AV move refused")
                 break
             end
             moved = moved + 1
-            if elapsed - lastTrail >= 400 then
+            if c.fall and elapsed - lastTrail >= 220 then
+                lastTrail = elapsed
+                GM.burst("fire.large", pos, anchor.bucket, 1.2, 500)
+                GM.burst("smoke.machine", pos, anchor.bucket, 5, 500)
+            elseif not c.fall and elapsed - lastTrail >= 400 then
                 lastTrail = elapsed
                 GM.burst("fire.small", pos, anchor.bucket, 1.5)
             end
@@ -546,19 +556,24 @@ function actions.av(anchor, step)
         end
 
         if Open77.vehicles.get(id) then
-            Open77.vehicles.setFrozen(id, false)
-            Open77.vehicles.explode(id)
+            if c.fall and c.intact then
+                Open77.vehicles.setTransform(id, { x = anchor.x, y = anchor.y, z = anchor.z, yaw = yaw })
+            else
+                Open77.vehicles.setFrozen(id, false)
+                Open77.vehicles.explode(id)
+            end
         end
         local blast, blastReason = Open77.effects.explosion(point(anchor), {
             radius = c.blastRadius, damage = c.blastDamage, bucket = anchor.bucket,
         })
         if not blast then print("[gm] AV blast refused: " .. tostring(blastReason)) end
         audience(anchor, "gm_events:shake")
+        if c.fall and (c.debris or 0) > 0 then actions.debris(anchor, c, myRun) end
         if c.fireSeconds > 0 then
             local lit, fireReason = actions.fire(anchor, { seconds = c.fireSeconds })
             if not lit then print("[gm] " .. tostring(fireReason)) end
         end
-        reply(anchor.source, nil, true, ("AV down after %d position updates (waited %d ms to stream)"):format(moved, waited))
+        reply(anchor.source, nil, true, ((c.fall and "Impact" or "AV down") .. " after %d position updates (waited %d ms to stream)"):format(moved, waited))
 
         -- Whoever came with the crash. The panel resolved these when it started.
         local brings = c.squadDef or c.bossDef or c.withChimera
@@ -596,6 +611,42 @@ function actions.av(anchor, step)
         if run then GM.objectivesReady(run) end
     end)
     return true
+end
+
+-- Smaller pieces coming down around the impact. Seen and heard; they do no damage.
+function actions.debris(anchor, c, myRun)
+    CreateThread(function()
+        for _ = 1, c.debris do
+            Wait(math.random(250, 1400))
+            if myRun ~= runId then return end
+            local turn, r = math.random() * 2 * math.pi, (0.25 + 0.75 * math.sqrt(math.random())) * c.debrisRadius
+            local at = { x = anchor.x + math.cos(turn) * r, y = anchor.y + math.sin(turn) * r, z = anchor.z }
+            CreateThread(function()
+                for step = 6, 1, -1 do
+                    if myRun ~= runId then return end
+                    GM.burst("fire.small", { x = at.x - step * 1.5, y = at.y, z = at.z + step * 9 }, anchor.bucket, 0.8, 500)
+                    Wait(110)
+                end
+                if myRun ~= runId then return end
+                local blast, why = Open77.effects.explosion(at, { radius = 4, damage = 0, bucket = anchor.bucket })
+                if not blast then print("[gm] debris blast refused: " .. tostring(why)) end
+                GM.burst("fire.small", at, anchor.bucket, 12)
+            end)
+        end
+    end)
+    return true
+end
+
+-- Something from the sky: the AV's flight with a steeper path and its own ending.
+function actions.fall(anchor, step)
+    local def = step and step.def
+    if not def then
+        local first = GM.fallModels[1]
+        def = { name = first.name, record = first.record, distance = 60, height = 160, flightSeconds = 5, direction = 0,
+            blastRadius = 14, fireSeconds = 60, debris = 5, debrisRadius = 30, spin = 120 }
+    end
+    def.fall = true
+    return actions.av(anchor, { def = def })
 end
 
 local function cleanup()
@@ -649,7 +700,7 @@ end
 
 command("gm.help", function()
     return true, "gm.mark, gm.unmark, gm.announce <text>, gm.boss <" .. names(GM.bosses)
-        .. ">, gm.wave <n>, gm.av, gm.boom, gm.fire <sec>, gm.cinematic <sec>, gm.scene <"
+        .. ">, gm.wave <n>, gm.av, gm.fall, gm.boom, gm.fire <sec>, gm.cinematic <sec>, gm.scene <"
         .. names(GM.scenes) .. ">, gm.chimera, gm.gas, gm.status, gm.killboss, gm.bring, gm.clean, gm.objectives, gm.loot, gm.ghost [on|off], gm.panel, gm.check, gm.stop"
 end)
 
@@ -718,6 +769,7 @@ command("gm.bring", function(source)
 end)
 
 placed("gm.av", function() return { action = "av" } end)
+placed("gm.fall", function() return { action = "fall" } end)
 placed("gm.boom", function() return { action = "boom" } end)
 placed("gm.fire", function(args) return { action = "fire", seconds = seconds(args[1], 60, 600) } end)
 placed("gm.cinematic", function(args) return { action = "cinematic", seconds = seconds(args[1], 6, 20) } end)

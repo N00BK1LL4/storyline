@@ -24,9 +24,9 @@
     if (bridge) bridge.emit("gm:error", { text: String(e.message).slice(0, 300) + " @" + e.lineno });
   });
 
-  var state = { boss: [], squad: [], av: [], objectives: [], loot: [], lootItems: [], scenes: [], avModels: [], status: {}, maxSquad: 20, canEdit: false };
+  var state = { boss: [], squad: [], av: [], fall: [], fallModels: [], objectives: [], loot: [], lootItems: [], scenes: [], avModels: [], status: {}, maxSquad: 20, canEdit: false };
   var live = { bosses: [], players: [], hostiles: 0, ghost: false, mark: false };
-  var drafts = { boss: null, squad: null, av: null, objectives: null, loot: null };
+  var drafts = { boss: null, squad: null, av: null, fall: null, objectives: null, loot: null };
   var req = 0;
 
   /* ---------------------------------------------------------------- models */
@@ -62,6 +62,7 @@
     if (s === "tested" || s === "broken") return s;
     return riskOf[record] === "candidate" || riskOf[record] === "soldier" ? riskOf[record] : "risky";
   }
+  function bodies(kind) { return kind === "fall" ? state.fallModels : state.avModels; }
   function avVerdict(m) {
     var s = state.status && state.status[m.record];
     return s === "tested" || s === "broken" ? s : m.tested ? "tested" : "untested";
@@ -95,11 +96,11 @@
   // Warn once before spawning anything doubtful.
   function spawn(kind, def, body) {
     var records = kind === "squad" ? def.units.map(function (u) { return u.record; }) : kind === "boss" ? [def.record] : [];
-    if (kind === "av") {
-      var av = arr(state.avModels).filter(function (m) { return m.record === def.record; })[0];
+    if (kind === "av" || kind === "fall") {
+      var av = arr(bodies(kind)).filter(function (m) { return m.record === def.record; })[0];
       if (av && avVerdict(av) === "broken" && !body.sure) {
         body.sure = true;
-        return confirmThen("This AV is marked broken. Use it anyway?", function () { spawn(kind, def, body); });
+        return confirmThen("This model is marked broken. Use it anyway?", function () { spawn(kind, def, body); });
       }
       var squad = original("squad", def.squadId), boss = original("boss", def.bossId);
       if (squad) records = records.concat(arr(squad.units).map(function (u) { return u.record; }));
@@ -317,6 +318,11 @@
       return { name: "", record: first ? first.record : "", distance: 110, height: 70, flightSeconds: 5, direction: 0,
         blastRadius: 12, blastDamage: 0, fireSeconds: 90 };
     },
+    fall: function () {
+      var first = arr(state.fallModels)[0];
+      return { name: "", record: first ? first.record : "", distance: 60, height: 160, flightSeconds: 5, direction: 0, spin: 120,
+        blastRadius: 14, blastDamage: 0, fireSeconds: 60, debris: 5, debrisRadius: 30 };
+    },
     objectives: function () { return { name: "", radius: 60, items: [newGoal("enemies")], ordered: true, timeLimit: 0 }; },
     loot: function () { return { name: "", entries: [{ item: "", min: 1, max: 1, chance: 100 }] }; }
   };
@@ -325,7 +331,7 @@
       var units = arr(d.units), total = units.reduce(function (n, u) { return n + (+u.count || 0); }, 0);
       return total + " units, " + d.pattern;
     }
-    if (kind === "av") {
+    if (kind === "av" || kind === "fall") {
       var with_ = [];
       if (d.squadId) with_.push((original("squad", d.squadId) || { name: "missing squad" }).name);
       if (d.bossId) with_.push(d.bossId === "chimera" ? "Chimera" : (original("boss", d.bossId) || { name: "missing boss" }).name);
@@ -567,20 +573,25 @@
     } else if (kind === "loot") {
       lootEditor(box, d, redraw);
     } else {
-      var pickAv = choice(d, "record", arr(state.avModels).map(function (m) {
+      var falls = kind === "fall";
+      var pickAv = choice(d, "record", arr(bodies(kind)).map(function (m) {
         var v = avVerdict(m);
         return [m.record, m.name + (v === "tested" ? "" : " (" + v + ")")];
       }));
       pickAv.addEventListener("change", redraw);
-      box.appendChild(field("AV", pickAv));
+      box.appendChild(field(falls ? "What falls" : "AV", pickAv));
       if (state.canEdit) box.appendChild(field("Note for all staff", noteButtons(d.record)));
-      [["distance", "Start distance, m", 40, 200, 5], ["height", "Start height, m", 20, 150, 5],
-        ["flightSeconds", "Flight time, s", 2, 15, 0.5], ["direction", "Approach angle, degrees", -180, 180, 15],
+      (falls ? [["distance", "Comes in from, m", 0, 150, 5], ["height", "Start height, m", 40, 250, 10],
+        ["flightSeconds", "Fall time, s", 2, 15, 0.5], ["spin", "Spin, degrees", -720, 720, 30]] :
+        [["distance", "Start distance, m", 40, 200, 5], ["height", "Start height, m", 20, 150, 5],
+        ["flightSeconds", "Flight time, s", 2, 15, 0.5]]).concat([["direction", "Approach angle, degrees", -180, 180, 15],
         ["blastRadius", "Blast radius, m", 3, 40, 1], ["blastDamage", "Blast damage", 0, 500, 10],
-        ["fireSeconds", "Fire, s", 0, 300, 10]].forEach(function (f) {
+        ["fireSeconds", "Fire, s", 0, 300, 10]],
+        falls ? [["debris", "Smaller pieces", 0, 12, 1], ["debrisRadius", "Pieces land within, m", 8, 60, 2]] : []).forEach(function (f) {
         box.appendChild(field(f[1], numberInput(d, f[0], f[2], f[3], f[4])));
       });
-      box.appendChild(el("p", "dim", "Angle 0 comes from your left. Blast damage above 0 hurts players in the radius."));
+      if (falls) box.appendChild(field("Stays in one piece", tickBox(d, "intact")));
+      box.appendChild(el("p", "dim", (falls ? "Untick to make it explode on impact. Smaller pieces never hurt players. " : "") + "Angle 0 comes from your left. Blast damage above 0 hurts players in the radius."));
 
       box.appendChild(el("h2", "", "Who comes with it"));
       d.squadId = d.squadId || "";
@@ -667,7 +678,7 @@
     var tab = document.querySelector('[data-tab="chimera"]');
     tab.style.display = state.chimera ? "" : "none";
     if (!state.chimera && tab.classList.contains("on")) document.querySelector('[data-tab="live"]').click();
-    ["boss", "squad", "av", "objectives", "loot"].forEach(renderKind);
+    ["boss", "squad", "av", "fall", "objectives", "loot"].forEach(renderKind);
     renderLootSettings();
     [["chObjectives", "objectives", "No objectives", "objectives"], ["chLoot", "loot", "No loot", "loot table"]].forEach(function (c) {
       var select = $(c[0]), chosen = select.value;

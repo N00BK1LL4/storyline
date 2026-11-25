@@ -34,6 +34,13 @@ An AV crash preset can bring a squad, a boss or the Chimera with it, a few secon
 after impact, with its own warning, arrival message and camera shot. It refers to
 your saved presets, so editing a squad changes every crash that uses it.
 
+## Falling objects
+
+The **Falling** tab drops a satellite, orbital capsule, escape pod, airdrop crate or rocket
+from the sky, with a fire trail, an optional warning and camera shot, smaller pieces
+landing around it, and the same squads, bosses and objectives a crash can bring.
+Starting one needs `command.gm.fall`, which `command.gm.*` includes.
+
 ## Objectives
 
 Make objective sets in the panel's **Objectives** tab and start them on their own, or

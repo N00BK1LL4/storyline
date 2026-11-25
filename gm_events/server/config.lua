@@ -2,7 +2,7 @@
 -- Tuning tab instead (server/settings.lua), and staff make presets in the panel,
 -- so updating this mod never needs this file merged.
 GM = {
-    version = "0.9.9",
+    version = "0.10.0",
     maxWave = 12,
 
     av = {
@@ -20,6 +20,14 @@ GM = {
 
 
     -- AVs the panel offers. Only the Manticore has been seen flying in-game.
+    -- things that can fall from the sky (Falling tab)
+    fallModels = {
+        { record = "Vehicle.q115_satellite", name = "Satellite" },
+        { record = "Vehicle.q306_orbital_capsule", name = "Orbital capsule" },
+        { record = "Vehicle.q301_ejecting_pod", name = "Escape pod" },
+        { record = "Vehicle.sa_ep1_airdrop_crate", name = "Airdrop crate" },
+        { record = "Vehicle.q301_rocket", name = "Rocket" },
+    },
     avModels = {
         { record = "Vehicle.av_militech_manticore", name = "Militech Manticore", tested = true },
         { record = "Vehicle.av_rayfield_excalibur", name = "Rayfield Excalibur" },
