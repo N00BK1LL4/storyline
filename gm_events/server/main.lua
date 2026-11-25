@@ -542,6 +542,17 @@ end
 
 GM.makeBody, GM.makeFire = makeBody, makeFire -- server/drop.lua
 
+-- Props that gm.stop has to find again.
+function GM.createProp(definition)
+    local id, why = Open77.props.create(definition)
+    if id then props[id] = true end
+    return id, why
+end
+function GM.removeProp(id)
+    props[id] = nil
+    Open77.props.remove(id)
+end
+
 -- The AV dives along a straight line and detonates at the mark. Nobody sits in
 -- it, so no client simulates it: the server moves a frozen body every tick.
 function actions.av(anchor, step)
@@ -679,7 +690,7 @@ function actions.av(anchor, step)
         reply(anchor.source, nil, true, ((c.fall and "Impact" or "AV down") .. " after %d position updates (waited %d ms to stream)"):format(moved, waited))
 
         -- Whoever came with the crash. The panel resolved these when it started.
-        local brings = c.squadDef or c.bossDef or c.withChimera
+        local brings = c.squadDef or c.bossDef or c.withChimera or c.interactDef
         local run
         if c.objectivesDef then
             local why2
@@ -696,7 +707,7 @@ function actions.av(anchor, step)
             x = anchor.x, y = anchor.y, z = anchor.z, heading = anchor.heading,
             bucket = anchor.bucket, source = anchor.source, event = run,
         }
-        GM.say("scene", c.arrival or GM.msgCrashSurvivors)
+        if c.arrival or c.squadDef or c.bossDef or c.withChimera then GM.say("scene", c.arrival or GM.msgCrashSurvivors) end
         local function report(what, ok, why)
             if not ok then reply(anchor.source, nil, false, what .. ": " .. tostring(why)) end
         end
@@ -704,6 +715,7 @@ function actions.av(anchor, step)
         if c.squadDef and rim > 0 then -- outside the rim, not inside its earth
             c.squadDef.pattern, c.squadDef.radius = "ring", math.max(c.squadDef.radius, rim + 5)
         end
+        if c.interactDef then report("interactable", actions.interact(site, { def = c.interactDef, offset = 4 })) end
         if c.squadDef then report("crash squad", actions.squad(site, { def = c.squadDef })) end
         if c.bossDef or c.withChimera then
             -- clear of the wreck, on the side the staff member was facing from
@@ -828,6 +840,7 @@ local function cleanup()
     GM.clearObjectives()
     GM.clearLoot()
     GM.clearDrops()
+    GM.clearInteracts()
     TriggerClientEvent("gm_events:release", -1)
 end
 
@@ -865,7 +878,7 @@ end
 
 command("gm.help", function()
     return true, "gm.mark, gm.unmark, gm.announce <text>, gm.boss <" .. names(GM.bosses)
-        .. ">, gm.wave <n>, gm.av, gm.fall, gm.drop, gm.boom, gm.fire <sec>, gm.cinematic <sec>, gm.scene <"
+        .. ">, gm.wave <n>, gm.av, gm.fall, gm.drop, gm.interact, gm.boom, gm.fire <sec>, gm.cinematic <sec>, gm.scene <"
         .. names(GM.scenes) .. ">, gm.chimera, gm.gas, gm.status, gm.killboss, gm.bring, gm.clean, gm.objectives, gm.loot, gm.ghost [on|off], gm.panel, gm.check, gm.stop"
 end)
 

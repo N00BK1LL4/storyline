@@ -11,7 +11,9 @@ local MAX_PRESETS, MAX_STATUS = 30, 300 -- per kind; keeps each message small
 local viewers = {}  -- playerId -> true while the panel is open
 local lastCall = {} -- playerId -> ms
 
+local SCRIPT = {} -- stands for another resource's server script, which the owner trusts
 local function allowed(playerId, right)
+    if playerId == SCRIPT then return true end
     return Open77.acl.isAllowed(playerId, right) == true
 end
 
@@ -91,8 +93,12 @@ function clean.objectives(d)
             local o = d.items[i]
             if type(o) ~= "table" or not GM.objectiveTypes[o.type] then return nil, "objective " .. i .. ": choose a type" end
             local item = { type = o.type, text = text(o.text, 80) }
+            if o.type == "hook" then
+                item.hook = type(o.hook) == "string" and #o.hook <= 100 and o.hook:match("^[%w_%-]+:[%w_%-]+$") or nil
+                if not item.hook then return nil, "objective " .. i .. ": choose a type" end
+            end
             if o.type == "custom" and not item.text then return nil, "objective " .. i .. ": write what players must do" end
-            if o.type == "kill" then item.count = math.floor(number(o.count, 1, 100, 5)) end
+            if o.type == "kill" or o.type == "interact" then item.count = math.floor(number(o.count, 1, 100, 5)) end
             if o.type == "hold" or o.type == "survive" then item.seconds = math.floor(number(o.seconds, 5, 1800, 60)) end
             if o.type == "reach" or o.type == "hold" then
                 item.size = number(o.size, 2, 50, DEFAULT_SIZE)
@@ -117,7 +123,7 @@ function clean.boss(d)
     if not name then return nil, "boss name: 1 to 32 characters" end
     if not record then return nil, "choose a boss model" end
     return {
-        objectivesId = presetId(d.objectivesId), lootId = presetId(d.lootId),
+        interactId = presetId(d.interactId), objectivesId = presetId(d.objectivesId), lootId = presetId(d.lootId),
         name = name, record = record,
         health = number(d.health, 0.1, 100, 5),
         height = number(d.height, 1, 8, 2.4),
@@ -143,7 +149,7 @@ function clean.squad(d)
     if total > GM.maxSquad then return nil, ("%d units: the limit is %d"):format(total, GM.maxSquad) end
     local pattern = (d.pattern == "line" or d.pattern == "cluster") and d.pattern or "ring"
     return { name = name, units = units, pattern = pattern, radius = number(d.radius, 2, 20, 6),
-        objectivesId = presetId(d.objectivesId), lootId = presetId(d.lootId) }
+        interactId = presetId(d.interactId), objectivesId = presetId(d.objectivesId), lootId = presetId(d.lootId) }
 end
 
 function clean.av(d)
@@ -160,7 +166,7 @@ function clean.av(d)
         blastDamage = number(d.blastDamage, 0, 500, 0),
         fireSeconds = number(d.fireSeconds, 0, 300, 90),
         squadId = presetId(d.squadId), bossId = presetId(d.bossId), -- nil: nobody
-        objectivesId = presetId(d.objectivesId),
+        interactId = presetId(d.interactId), objectivesId = presetId(d.objectivesId),
         spawnDelay = number(d.spawnDelay, 0, 60, 3), warningLead = number(d.warningLead, 0, 60, 6),
         cinematic = d.cinematic == true or nil,
         warning = text(d.warning, 160), arrival = text(d.arrival, 160),
@@ -180,7 +186,7 @@ function clean.fall(d)
         fireSeconds = number(d.fireSeconds, 0, 300, 60),
         crater = number(d.crater, 0, 12, 5), sink = number(d.sink, 0, 3, 0.4), rim = number(d.rim, 0.3, 3, 1),
         debris = math.floor(number(d.debris, 0, 12, 0)), debrisRadius = number(d.debrisRadius, 8, 60, 30),
-        squadId = presetId(d.squadId), bossId = presetId(d.bossId), objectivesId = presetId(d.objectivesId),
+        squadId = presetId(d.squadId), bossId = presetId(d.bossId), interactId = presetId(d.interactId), objectivesId = presetId(d.objectivesId),
         spawnDelay = number(d.spawnDelay, 0, 60, 3), warningLead = number(d.warningLead, 0, 60, 6),
         cinematic = d.cinematic == true or nil, warning = text(d.warning, 160), arrival = text(d.arrival, 160),
     }
@@ -198,15 +204,42 @@ function clean.drop(d)
         openSeconds = number(d.openSeconds, 1, 60, 5), life = number(d.life, 1, 60, 15),
         share = d.share == "opener" and "opener" or "near",
         lootId = presetId(d.lootId), squadId = presetId(d.squadId), bossId = presetId(d.bossId),
-        objectivesId = presetId(d.objectivesId), spawnDelay = number(d.spawnDelay, 0, 60, 3),
+        interactId = presetId(d.interactId), objectivesId = presetId(d.objectivesId), spawnDelay = number(d.spawnDelay, 0, 60, 3),
         warningLead = number(d.warningLead, 0, 60, 6), cinematic = d.cinematic == true or nil,
         warning = text(d.warning, 160), arrival = text(d.arrival, 160), opened = text(d.opened, 160),
     }
 end
 
+local interactNames = {}
+for _, m in ipairs(GM.interactModels) do interactNames[m.model] = true end
+local function hookId(value)
+    if type(value) ~= "string" or #value > 100 then return nil end
+    return value:match("^[%w_%-]+:[%w_%-]+$")
+end
+local interactEffects = { none = true, spark = true, smoke = true, blast = true }
+
+function clean.interact(d)
+    local name = text(d.name, 32)
+    if not name then return nil, "name: 1 to 32 characters" end
+    if not interactNames[d.model] then return nil, "choose how it looks" end
+    local prompt = text(d.prompt, 40)
+    if not prompt then return nil, "what players do: 1 to 40 characters" end
+    return {
+        name = name, prompt = prompt, model = d.model,
+        count = math.floor(number(d.count, 1, 8, 1)), spread = number(d.spread, 2, 40, 8),
+        seconds = number(d.seconds, 0.5, 120, 5), players = math.floor(number(d.players, 1, 8, 1)),
+        uses = math.floor(number(d.uses, 0, 50, 1)), cooldown = number(d.cooldown, 0, 600, 0), stays = d.stays == true or nil,
+        effect = interactEffects[d.effect] and d.effect or "none", fuse = number(d.fuse, 0, 120, 0),
+        blastRadius = number(d.blastRadius, 3, 40, 8), blastDamage = number(d.blastDamage, 0, 500, 0),
+        check = hookId(d.check),
+        lootId = presetId(d.lootId), squadId = presetId(d.squadId), objectivesId = presetId(d.objectivesId),
+        spawnDelay = number(d.spawnDelay, 0, 60, 2), intro = text(d.intro, 160), arrival = text(d.arrival, 160), done = text(d.done, 160),
+    }
+end
+
 -- ------------------------------------------------------------------- presets
 
-local presets = { boss = {}, squad = {}, av = {}, fall = {}, drop = {}, objectives = {}, loot = {} } -- kind -> id -> def
+local presets = { boss = {}, squad = {}, av = {}, fall = {}, drop = {}, interact = {}, objectives = {}, loot = {} } -- kind -> id -> def
 local status = {}                                  -- record -> "tested" | "broken"
 local shipped = {}
 for _, record in ipairs(GM.testedModels) do shipped[record] = "tested" end
@@ -243,6 +276,23 @@ local function listOf(kind)
                 health = b.health, height = b.height or 2.4, scaling = true,
             }
         end
+    end
+    if kind == "interact" then
+        list[#list + 1] = {
+            id = "builtin:hack", builtin = true, name = "Hack the terminal", prompt = "Hold to hack", model = "electronics.monitor.device",
+            count = 1, spread = 8, seconds = 8, players = 1, uses = 1, cooldown = 0, effect = "spark", fuse = 0, blastRadius = 8,
+            blastDamage = 0, spawnDelay = 2,
+        }
+        list[#list + 1] = {
+            id = "builtin:search", builtin = true, name = "Search the cases", prompt = "Hold to search", model = "military.case.large",
+            count = 3, spread = 8, seconds = 4, players = 1, uses = 1, cooldown = 0, effect = "none", fuse = 0, blastRadius = 8,
+            blastDamage = 0, spawnDelay = 2, stays = true,
+        }
+        list[#list + 1] = {
+            id = "builtin:charge", builtin = true, name = "Blow the generator", prompt = "Hold to plant a charge", model = "industrial.generator",
+            count = 1, spread = 8, seconds = 6, players = 1, uses = 1, cooldown = 0, effect = "blast", fuse = 8, blastRadius = 8,
+            blastDamage = 0, spawnDelay = 2,
+        }
     end
     if kind == "drop" then
         list[#list + 1] = {
@@ -343,8 +393,10 @@ local function sendState(playerId)
     for id in pairs(GM.scenes) do scenes[#scenes + 1] = id end
     table.sort(scenes)
     -- One message per part: the page merges them.
+    local hookTypes, hookChecks = GM.hookList()
+    send(playerId, "gm_events:panel:state", { part = "hooks", hookTypes = hookTypes, hookChecks = hookChecks })
     send(playerId, "gm_events:panel:state", {
-        part = "base", scenes = scenes, avModels = GM.avModels, fallModels = GM.fallModels,
+        part = "base", scenes = scenes, avModels = GM.avModels, fallModels = GM.fallModels, interactModels = GM.interactModels,
         maxSquad = GM.maxSquad, canEdit = allowed(playerId, EDIT),
         chimera = GetResourceState("open77_chimera") == "running",
     })
@@ -362,7 +414,7 @@ local function sendState(playerId)
         for key in pairs(GM.announceKeys) do values[key] = GM[key] end
         send(playerId, "gm_events:panel:state", { part = "announce", announce = values })
     end
-    for _, kind in ipairs({ "boss", "squad", "av", "fall", "drop", "objectives", "loot" }) do
+    for _, kind in ipairs({ "boss", "squad", "av", "fall", "drop", "interact", "objectives", "loot" }) do
         send(playerId, "gm_events:panel:state", { part = kind, [kind] = listOf(kind) })
     end
 end
@@ -391,7 +443,7 @@ local function sendLive(playerId)
     end
     send(playerId, "gm_events:panel:live", {
         bosses = bosses, hostiles = hostiles, players = players,
-        objectives = GM.objectiveList(),
+        objectives = GM.objectiveList(), interacts = GM.interactList(),
         ghost = core.isGhost(playerId), mark = core.mark(playerId) ~= nil,
     })
 end
@@ -430,6 +482,7 @@ end
 
 -- op -> the typed command whose right it needs
 local spawnRight = { boss = "command.gm.boss", squad = "command.gm.wave", av = "command.gm.av", fall = "command.gm.fall", drop = "command.gm.drop",
+    interact = "command.gm.interact",
     objectives = "command.gm.objectives" }
 local function spawnDistance(kind)
     return kind == "boss" and GM.npcDistance or kind == "squad" and GM.npcDistance + 6 or GM.eventDistance
@@ -483,6 +536,23 @@ local function attach(playerId, def)
     return true
 end
 
+-- Anything can bring an interactable, which may bring its own loot and alarm squad.
+local function attachInteract(playerId, def)
+    if not def.interactId then return true end
+    if not allowed(playerId, spawnRight.interact) then return nil, "you need " .. spawnRight.interact end
+    local found = find("interact", def.interactId)
+    local one, bad = nil, "the attached interactable no longer exists"
+    if found then one, bad = clean.interact(found) end
+    if not one then return nil, bad end
+    one.objectivesId = nil -- the event it comes with has its own
+    local squadOk, noSquad = attach(playerId, one)
+    if not squadOk then return nil, noSquad end
+    local paid, noLoot = attachLoot(playerId, one)
+    if not paid then return nil, noLoot end
+    def.interactDef = one
+    return true
+end
+
 local function attachObjectives(playerId, def, comes)
     if not def.objectivesId then return true end
     if not allowed(playerId, spawnRight.objectives) then return nil, "you need " .. spawnRight.objectives end
@@ -492,6 +562,8 @@ local function attachObjectives(playerId, def, comes)
     if not set then return nil, bad end
     local never = GM.objectivesImpossible(set, comes)
     if never then return nil, set.name .. ": " .. never end
+    local missing = GM.hooksMissing(set)
+    if missing then return nil, set.name .. ": " .. missing end
     local can, full = GM.canStartObjectives()
     if not can then return nil, full end
     local paid, noLoot = attachLoot(playerId, set)
@@ -514,6 +586,34 @@ local function withObjectives(anchor, set, action, step)
 end
 
 local ops = {}
+
+-- For server/hooks.lua: a preset by its id or name, at a place a script chose.
+function GM.startPreset(kind, wanted, anchor)
+    local found
+    for _, def in ipairs(listOf(kind)) do
+        if def.id == wanted or def.name == wanted then found = found or def end
+    end
+    if not found then return false, "no such preset" end
+    local def, bad = clean[kind](found)
+    if not def then return false, bad end
+    if kind == "interact" then
+        local ok, why = attach(SCRIPT, def)
+        if not ok then return false, why end
+    end
+    local paid, noLoot = attachLoot(SCRIPT, def)
+    if not paid then return false, noLoot end
+    if kind == "interact" then
+        local linked, why = attachObjectives(SCRIPT, def, { interact = true })
+        if not linked then return false, why end
+    end
+    local ok, why = withObjectives(anchor, def.objectivesDef, core.actions[kind], { def = def })
+    return ok, why or def.name
+end
+
+function ops.interacts(playerId, d)
+    if not allowed(playerId, spawnRight.interact) then return false, "you need " .. spawnRight.interact end
+    return GM.endInteract(d.id)
+end
 
 function ops.objectives(playerId, d)
     if not allowed(playerId, spawnRight.objectives) then return false, "you need " .. spawnRight.objectives end
@@ -538,6 +638,12 @@ function ops.spawn(playerId, d)
     end
     local def, bad = clean[d.kind](source)
     if not def then return false, bad end
+    if d.kind == "interact" then
+        local squadOk, noSquad = attach(playerId, def)
+        if not squadOk then return false, noSquad end
+    end
+    local withOne, noOne = attachInteract(playerId, def)
+    if not withOne then return false, noOne end
     local lands = d.kind == "av" or d.kind == "fall" or d.kind == "drop"
     if lands then
         local attached, missing = attach(playerId, def)
@@ -546,12 +652,22 @@ function ops.spawn(playerId, d)
     local paid, noLoot = attachLoot(playerId, def)
     if not paid then return false, noLoot end
     local boss = d.kind == "boss" or def.bossDef ~= nil or def.withChimera == true
-    local linked, notLinked = attachObjectives(playerId, def, { boss = boss, enemies = boss or d.kind == "squad" or def.squadDef ~= nil })
+    local linked, notLinked = attachObjectives(playerId, def, {
+        boss = boss, enemies = boss or d.kind == "squad" or (d.kind ~= "interact" and def.squadDef ~= nil),
+        interact = d.kind == "interact" or def.interactDef ~= nil,
+    })
     if not linked then return false, notLinked end
     local anchor, why = target(playerId, d, spawnDistance(d.kind))
     if not anchor then return false, why end
     -- A crash starts its own at impact; a boss or squad starts them with itself.
-    local ok, reason = withObjectives(anchor, not lands and def.objectivesDef or nil, core.actions[d.kind], { def = def })
+    local ok, reason = withObjectives(anchor, not lands and def.objectivesDef or nil, function(at, step)
+        local done, what = core.actions[d.kind](at, step)
+        if done and def.interactDef and not lands then
+            local placed, problem = core.actions.interact(at, { def = def.interactDef, offset = 4 })
+            if not placed then core.reply(playerId, nil, false, "interactable: " .. tostring(problem)) end
+        end
+        return done, what
+    end, { def = def })
     return ok, reason or (def.name .. " started")
 end
 
@@ -812,5 +928,5 @@ CreateThread(function()
 end)
 
 load()
-print(("gm_events panel ready: %d boss, %d squad, %d AV, %d falling, %d drop, %d objective, %d loot presets"):format(
-    count(presets.boss), count(presets.squad), count(presets.av), count(presets.fall), count(presets.drop), count(presets.objectives), count(presets.loot)))
+print(("gm_events panel ready: %d boss, %d squad, %d AV, %d falling, %d drop, %d interactable, %d objective, %d loot presets"):format(
+    count(presets.boss), count(presets.squad), count(presets.av), count(presets.fall), count(presets.drop), count(presets.interact), count(presets.objectives), count(presets.loot)))

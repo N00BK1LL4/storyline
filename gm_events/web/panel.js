@@ -24,9 +24,9 @@
     if (bridge) bridge.emit("gm:error", { text: String(e.message).slice(0, 300) + " @" + e.lineno });
   });
 
-  var state = { boss: [], squad: [], av: [], fall: [], fallModels: [], drop: [], objectives: [], loot: [], lootItems: [], scenes: [], avModels: [], status: {}, maxSquad: 20, canEdit: false };
+  var state = { boss: [], squad: [], av: [], fall: [], fallModels: [], drop: [], interact: [], interactModels: [], hookTypes: [], hookChecks: [], objectives: [], loot: [], lootItems: [], scenes: [], avModels: [], status: {}, maxSquad: 20, canEdit: false };
   var live = { bosses: [], players: [], hostiles: 0, ghost: false, mark: false };
-  var drafts = { boss: null, squad: null, av: null, fall: null, drop: null, objectives: null, loot: null };
+  var drafts = { boss: null, squad: null, av: null, fall: null, drop: null, interact: null, objectives: null, loot: null };
   var req = 0;
 
   /* ---------------------------------------------------------------- models */
@@ -106,6 +106,9 @@
       if (squad) records = records.concat(arr(squad.units).map(function (u) { return u.record; }));
       if (boss) records.push(boss.record);
     }
+    var brought = kind === "interact" ? def : original("interact", def.interactId);
+    var alarm = brought && original("squad", brought.squadId);
+    if (alarm) records = records.concat(arr(alarm.units).map(function (u) { return u.record; }));
     var bad = records.filter(function (r) { var v = verdict(r); return v === "risky" || v === "broken"; });
     body.kind = kind;
     delete body.sure;
@@ -255,6 +258,17 @@
     });
     $("hostiles").textContent = live.hostiles + (live.hostiles === 1 ? " hostile alive" : " hostiles alive");
     renderRuns();
+    var list = arr(live.interacts), inBox = $("interacts"), sign = JSON.stringify(list);
+    if (inBox.dataset.sign !== sign) {
+      inBox.dataset.sign = sign;
+      inBox.textContent = "";
+      list.forEach(function (i) {
+        var row = el("div", "row");
+        row.appendChild(el("span", "", i.name + "  " + i.done + "/" + i.total));
+        row.appendChild(btn("Remove", "", function () { call("interacts", { id: i.id }); }));
+        inBox.appendChild(row);
+      });
+    }
   }
 
   /* Rebuilt only when something structural changes, so a click is never lost. */
@@ -300,11 +314,12 @@
 
   /* --------------------------------------------------------------- editors */
   var goalTypes = [["enemies", "Defeat the enemies"], ["kill", "Kill a number"], ["boss", "Defeat the boss"],
-    ["reach", "Reach a place"], ["hold", "Hold an area"], ["survive", "Survive"], ["custom", "Custom, ticked by staff"]];
+    ["reach", "Reach a place"], ["hold", "Hold an area"], ["survive", "Survive"], ["interact", "Use interactables"], ["custom", "Custom, ticked by staff"]];
   function newGoal(type, text) {
     var g = { type: type };
     if (text) g.text = text;
     if (type === "kill") g.count = 5;
+    if (type === "interact") g.count = 1;
     if (type === "hold" || type === "survive") g.seconds = 60;
     if (type === "reach" || type === "hold") { g.size = 8; g.distance = 0; g.direction = 0; }
     if (type === "hold") g.players = 1;
@@ -328,6 +343,10 @@
       return { name: "", record: first ? first.record : "", height: 45, run: 130, flySeconds: 9, fallSeconds: 8, direction: 0,
         hover: 0.8, openSeconds: 5, life: 15, share: "near" };
     },
+    interact: function () {
+      return { name: "", prompt: "Hold to use", model: "electronics.monitor.device", count: 1, spread: 8, seconds: 5, players: 1,
+        uses: 1, cooldown: 0, effect: "none", fuse: 0, blastRadius: 8, blastDamage: 0, spawnDelay: 2 };
+    },
     objectives: function () { return { name: "", radius: 60, items: [newGoal("enemies")], ordered: true, timeLimit: 0 }; },
     loot: function () { return { name: "", entries: [{ item: "", min: 1, max: 1, chance: 100 }] }; }
   };
@@ -346,6 +365,7 @@
       var e = arr(d.entries).length;
       return e + (e === 1 ? " item" : " items");
     }
+    if (kind === "interact") return d.prompt + ", " + d.seconds + " s" + (d.count > 1 ? ", " + d.count + " of them" : "");
     if (kind === "objectives") {
       var n = arr(d.items).length;
       return n + (n === 1 ? " objective, " : " objectives, ") + d.radius + " m";
@@ -434,6 +454,10 @@
     d.objectivesId = d.objectivesId || "";
     box.appendChild(field("Objectives", choice(d, "objectivesId",
       presetOptions("objectives", "No objectives", d.objectivesId, "objectives"))));
+    if (d.model === undefined) { // everything but an interactable itself can bring one
+      d.interactId = d.interactId || "";
+      box.appendChild(field("Interactable", choice(d, "interactId", presetOptions("interact", "None", d.interactId, "interactable"))));
+    }
     if (note) box.appendChild(el("p", "dim", note));
   }
   function lootField(box, d, note) {
@@ -492,8 +516,17 @@
     box.appendChild(el("h2", "", "Objectives: " + d.items.length + " of 8"));
     d.items.forEach(function (g, i) {
       var card = el("div", "goal"), row = el("div", "row");
-      var pickType = choice(g, "type", goalTypes);
-      pickType.addEventListener("change", function () { d.items[i] = newGoal(g.type, g.text); redraw(); });
+      // owners' own types sit in the same list, as hook|<resource:id>
+      var kinds = goalTypes.concat(arr(state.hookTypes).map(function (h) { return ["hook|" + h.id, h.label + " (server's own)"]; }));
+      var current = { value: g.type === "hook" ? "hook|" + g.hook : g.type };
+      if (!kinds.some(function (k) { return k[0] === current.value; })) kinds.push([current.value, "Missing: " + g.hook]);
+      var pickType = choice(current, "value", kinds);
+      pickType.addEventListener("change", function () {
+        var hook = current.value.indexOf("hook|") === 0 ? current.value.slice(5) : null;
+        d.items[i] = newGoal(hook ? "hook" : current.value, g.text);
+        if (hook) d.items[i].hook = hook;
+        redraw();
+      });
       row.appendChild(pickType);
       var up = btn("Up", "", function () { d.items.splice(i - 1, 0, d.items.splice(i, 1)[0]); redraw(); });
       up.disabled = i === 0;
@@ -503,7 +536,7 @@
       row.appendChild(remove);
       card.appendChild(row);
       card.appendChild(field("Text players see", textInput(g, "text", 80)));
-      if (g.type === "kill") card.appendChild(field("How many", numberInput(g, "count", 1, 100, 1)));
+      if (g.type === "kill" || g.type === "interact") card.appendChild(field("How many", numberInput(g, "count", 1, 100, 1)));
       if (g.type === "hold" || g.type === "survive") card.appendChild(field("Seconds", numberInput(g, "seconds", 5, 1800, 5)));
       if (g.type === "hold") card.appendChild(field("Players needed", numberInput(g, "players", 1, 16, 1)));
       if (g.type === "reach" || g.type === "hold") {
@@ -571,6 +604,38 @@
       box.appendChild(add);
       objectivesField(box, d);
       lootField(box, d, "Rolled for every enemy in the squad.");
+    } else if (kind === "interact") {
+      box.appendChild(field("What players do", textInput(d, "prompt", 40)));
+      box.appendChild(field("Looks like", choice(d, "model", arr(state.interactModels).map(function (m) { return [m.model, m.name]; }))));
+      [["count", "How many", 1, 8, 1], ["spread", "Placed in a ring of, m", 2, 40, 1], ["seconds", "Seconds to hold", 0.5, 120, 0.5],
+        ["players", "Players needed at once", 1, 8, 1], ["uses", "Uses each (0 = no limit)", 0, 50, 1],
+        ["cooldown", "Seconds between uses", 0, 600, 5]].forEach(function (f) {
+        box.appendChild(field(f[1], numberInput(d, f[0], f[2], f[3], f[4])));
+      });
+      d.check = d.check || "";
+      var tests = [["", "Holding the key is enough"]].concat(arr(state.hookChecks).map(function (c) { return [c.id, c.label]; }));
+      if (d.check && !tests.some(function (t) { return t[0] === d.check; })) tests.push([d.check, "Missing: " + d.check]);
+      box.appendChild(field("Server's own check", choice(d, "check", tests)));
+      box.appendChild(field("Stays when finished", tickBox(d, "stays")));
+      box.appendChild(el("p", "dim", "Players hold E next to it. With no use limit it never counts as finished. Objects need open77_props."));
+      box.appendChild(el("h2", "", "What happens"));
+      var effect = choice(d, "effect", [["none", "Nothing to see"], ["spark", "Sparks"], ["smoke", "Smoke"], ["blast", "Explosion"]]);
+      effect.addEventListener("change", redraw);
+      box.appendChild(field("Effect", effect));
+      if (d.effect === "blast") {
+        [["fuse", "Seconds until it blows", 0, 120, 1], ["blastRadius", "Blast radius, m", 3, 40, 1], ["blastDamage", "Blast damage", 0, 500, 10]].forEach(function (f) {
+          box.appendChild(field(f[1], numberInput(d, f[0], f[2], f[3], f[4])));
+        });
+      }
+      lootField(box, d, "For whoever used it.");
+      d.squadId = d.squadId || "";
+      box.appendChild(field("Alarm: squad", choice(d, "squadId", presetOptions("squad", "No alarm", d.squadId, "squad"))));
+      box.appendChild(field("Seconds after the first use", numberInput(d, "spawnDelay", 0, 60, 1)));
+      objectivesField(box, d);
+      box.appendChild(el("h2", "", "Announcements to the whole server"));
+      box.appendChild(field("When placed", textInput(d, "intro", 160)));
+      box.appendChild(field("When the alarm squad comes", textInput(d, "arrival", 160)));
+      box.appendChild(field("When all are finished", textInput(d, "done", 160)));
     } else if (kind === "objectives") {
       goalEditor(box, d, redraw);
       box.appendChild(el("h2", "", "Reward"));
@@ -641,7 +706,7 @@
         if (!same) return result("Save the table first, then try it", "bad");
         confirmThen("Give yourself one real roll of this table?", function () { call("lootTest", { id: d.id }); });
       }));
-    } else row.appendChild(btn(kind === "objectives" ? "Start" : "Spawn", "main", function () {
+    } else row.appendChild(btn(kind === "objectives" ? "Start" : kind === "interact" ? "Place" : "Spawn", "main", function () {
       // Unchanged presets go by id, which needs no editor right.
       var unchanged = d.id && JSON.stringify(strip(d)) === JSON.stringify(strip(original(kind, d.id)));
       if (unchanged) return spawn(kind, d, { id: d.id });
@@ -670,7 +735,7 @@
   }
   function strip(d) {
     var out = {};
-    Object.keys(d || {}).sort().forEach(function (k) { if (k !== "id" && k !== "builtin" && d[k] !== "" && !(k === "spawnDelay" && d[k] === 3) && !(k === "warningLead" && d[k] === 6)) out[k] = d[k]; });
+    Object.keys(d || {}).sort().forEach(function (k) { if (k !== "id" && k !== "builtin" && (d[k] !== "" || k === "model") && !(k === "spawnDelay" && d[k] === 3) && !(k === "warningLead" && d[k] === 6)) out[k] = d[k]; });
     if (out.units) out.units = arr(out.units).map(function (u) { return { record: u.record, count: u.count }; });
     if (out.entries) out.entries = arr(out.entries).map(function (e) {
       var entry = {};
@@ -692,7 +757,7 @@
     var tab = document.querySelector('[data-tab="chimera"]');
     tab.style.display = state.chimera ? "" : "none";
     if (!state.chimera && tab.classList.contains("on")) document.querySelector('[data-tab="live"]').click();
-    ["boss", "squad", "av", "fall", "drop", "objectives", "loot"].forEach(renderKind);
+    ["boss", "squad", "av", "fall", "drop", "interact", "objectives", "loot"].forEach(renderKind);
     renderLootSettings();
     [["chObjectives", "objectives", "No objectives", "objectives"], ["chLoot", "loot", "No loot", "loot table"]].forEach(function (c) {
       var select = $(c[0]), chosen = select.value;

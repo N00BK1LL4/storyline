@@ -86,7 +86,7 @@ local function land(d)
         if not run then core.reply(anchor.source, nil, false, "objectives: " .. tostring(why)) end
     end
     if def.arrival then GM.say("scene", def.arrival) end
-    if not (def.squadDef or def.bossDef or def.withChimera) then
+    if not (def.squadDef or def.bossDef or def.withChimera or def.interactDef) then
         if run then GM.objectivesReady(run) end
         return
     end
@@ -104,6 +104,10 @@ local function land(d)
         end
         local function report(what, ok, why)
             if not ok then core.reply(anchor.source, nil, false, what .. ": " .. tostring(why)) end
+        end
+        if def.interactDef then
+            local here = at(0)
+            report("interactable", core.actions.interact(here, { def = def.interactDef, offset = 5 }))
         end
         if def.squadDef then report("drop squad", core.actions.squad(at(0), { def = def.squadDef })) end
         if def.bossDef then report("drop boss", core.actions.boss(at(8), { def = def.bossDef })) end

@@ -80,6 +80,10 @@ local Tune = Open77.tunables.declare({
         label = "Objectives: least time", description = "Seconds a player must have been inside and alive to earn objective loot." },
     lootGroundSeconds = { value = 300, type = "integer", min = 10, max = 3600, unit = "s", apply = "live", group = "Loot", order = 6,
         label = "Ground: time on the ground", description = "How long a drop stays." },
+    objectiveDisplay = { value = "builtin", type = "enum", choices = { "builtin", "event" }, apply = "live", group = "Objectives", order = 2,
+        label = "Who shows objectives", description = "builtin: this mod's tracker and marker. event: neither; your script shows them from gm_events:objectiveState." },
+    interactPrompt = { value = "builtin", type = "enum", choices = { "builtin", "event" }, apply = "live", group = "Interactables", order = 1,
+        label = "Who shows the prompt", description = "builtin: this mod's label and key. event: neither; your own interaction system uses gm_events:interactPoint." },
     objectiveGrace = { value = 10, type = "integer", min = 0, max = 120, unit = "s", apply = "live", group = "Objectives", order = 1,
         label = "Time to return", description = "How long a player may be outside the area before the objectives are taken off their screen." },
     npcDistance = { value = 6, type = "integer", min = 3, max = 40, unit = "m", apply = "live", group = "Placement", order = 1,
@@ -99,7 +103,7 @@ local Tune = Open77.tunables.declare({
 -- The rest of the code keeps reading GM.<name>; each read goes to the live value.
 local live = {
     lootMethod = true, lootResource = true, lootExport = true, lootShare = true, lootMinSeconds = true,
-    lootGroundSeconds = true, objectiveGrace = true, npcDistance = true, eventDistance = true, audienceRadius = true, bossBarRadius = true,
+    lootGroundSeconds = true, objectiveGrace = true, objectiveDisplay = true, interactPrompt = true, npcDistance = true, eventDistance = true, audienceRadius = true, bossBarRadius = true,
     maxSquad = true, corpseSeconds = true, mapMarker = true, bossBarStyle = true, announceBosses = true,
 }
 for _, key in ipairs({ "announceMethod", "announceResource", "announceExport", "announceTitle", "announceSeconds",

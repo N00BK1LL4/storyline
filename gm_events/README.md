@@ -99,7 +99,7 @@ AddEventHandler("gm_events:loot", function(award)
 end)
 ```
 
-An award has `phase`, `id`, `source` (enemy, boss, objectives, drop or test), `name`, `table`,
+An award has `phase`, `id`, `source` (enemy, boss, objectives, drop, interact or test), `name`, `table`,
 `playerId`, `playerName`, `items` (`item`, `label`, `amount`), `position`, `method` and
 `handled`.
 
@@ -119,6 +119,64 @@ exports.gm_events:registerItems({ { id = "medkit", label = "Medkit" }, { id = "c
 Bosses pay every player who hurt them; enemies pay everyone who did, or only the last
 (your choice); objectives pay everyone who was there long enough. Ghosted staff and players
 who left never earn anything. Nothing is given for bodies staff clean up.
+
+## Interactables
+
+Make things players use by holding a key (E, rebindable) in the panel's **Interact** tab:
+hack, search, plant a charge, rescue. Choose how long it takes, how many players it needs,
+what happens, its loot and an alarm squad. Place one on its own, or let a crash, falling
+object, supply drop, boss or squad bring it. The objective type **Use interactables**
+counts them. Placing one needs `command.gm.interact`, which `command.gm.*` includes.
+
+Your scripts can listen to `gm_events:interact`: `phase` (used, finished, ended), `id`,
+`name`, `players`, `left`, `total`.
+
+## Your own objectives and interactions
+
+Server owners can plug in at three levels. `examples/hooks_bridge.lua` shows all of them.
+
+**1. Show things your way** (Warden, Tuning tab)
+
+- *Who shows objectives* = event: no tracker or marker from this mod. Your script gets
+  `gm_events:objectiveState` with `playerId` and `state` (`title`, `status`, `time`, `items`,
+  `outcome`, `away`, `marker`), or `state = false` when it ends for that player.
+- *Who shows the prompt* = event: no label or key. Your script gets `gm_events:interactPoint`
+  (`phase` placed, finished, fuse or removed, with `id`, `position`, `prompt`, `seconds`,
+  `players`, `model`) and calls `exports.gm_events:useInteract(id, { playerId })` when your own
+  menu or minigame is done. Distance, cooldown and the number of players are still checked.
+
+**2. Add your own types**; staff then find them in the panel
+
+```lua
+exports.gm_events:registerObjectiveTypes({ { id = "deliver", label = "Deliver the goods" } })
+AddEventHandler("gm_events:objectiveHook", function(e)
+    if e.hook ~= "my_jobs:deliver" then return end
+    -- e.phase is "start" or "stop"; e.players are those taking part
+    if e.phase == "start" then MyJobs.begin(e.id, e.index, e.position) end
+end)
+-- later
+exports.gm_events:setObjective(runId, index, { note = "2/5" })
+exports.gm_events:setObjective(runId, index, { done = true })
+
+exports.gm_events:registerInteractChecks({ { id = "lockpick", label = "Lockpick minigame", export = "lockpick" } })
+exports("lockpick", function(point) -- may wait for the player
+    return MyMinigame.play(point.playerId), "The lock held" -- true, or false and why
+end)
+```
+
+**3. Run things from scripts**
+
+| Export | Does |
+|---|---|
+| `start(kind, preset, at)` | Starts an `"objectives"` or `"interact"` preset by id or name at `{ x, y, z, heading, bucket }` |
+| `getObjectives()` / `getInteracts()` | What is running now |
+| `setObjective(id, index, patch)` | `done` and `note` of hooked and custom objectives |
+| `completeObjectives(id)`, `failObjectives(id)`, `endObjectives(id)` | Ends a set |
+| `useInteract(pointId, players)`, `removeInteract(groupId)` | Uses or removes an interactable |
+
+Every event has a rising `seq`, because events sent together may arrive in another order.
+Register again when gm_events restarts. These exports are for server scripts, which you
+trust; they are written to the server log.
 
 ## Announcements
 

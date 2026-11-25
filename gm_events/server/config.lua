@@ -2,7 +2,7 @@
 -- Tuning tab instead (server/settings.lua), and staff make presets in the panel,
 -- so updating this mod never needs this file merged.
 GM = {
-    version = "0.11.0",
+    version = "0.13.0",
     maxWave = 12,
 
     av = {
@@ -23,6 +23,18 @@ GM = {
     -- supply drops: the usual AV and the crate
     dropAv = "Vehicle.av_militech_manticore",
     dropCrate = "Vehicle.sa_ep1_airdrop_crate",
+    -- what an interactable can look like; "" is only the label
+    interactModels = {
+        { model = "", name = "Nothing, label only" },
+        { model = "electronics.server", name = "Server" }, { model = "electronics.monitor.device", name = "Terminal" },
+        { model = "electronics.fuse_box", name = "Fuse box" }, { model = "industrial.generator", name = "Generator" },
+        { model = "industrial.machine", name = "Machine" }, { model = "military.case.large", name = "Military case" },
+        { model = "military.case", name = "Small case" }, { model = "crate.valuable", name = "Valuable crate" },
+        { model = "container.safe", name = "Safe" }, { model = "container.gas_tank", name = "Gas tank" },
+        { model = "office.cabinet.file", name = "File cabinet" }, { model = "medical.body_bag", name = "Body bag" },
+        { model = "medical.device", name = "Medical device" }, { model = "bin.dumpster.medium", name = "Dumpster" },
+        { model = "garbage.bag", name = "Bag" },
+    },
     -- things that can fall from the sky (Falling tab)
     fallModels = {
         { record = "Vehicle.q306_orbital_capsule", name = "Orbital capsule", tested = true },

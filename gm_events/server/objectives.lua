@@ -45,8 +45,10 @@ local function participants(run)
     return list
 end
 
+local eventNumber = 0 -- events sent together may arrive swapped: owners can sort by seq
 local function raise(run, phase, extra)
-    local payload = { phase = phase, id = run.id, name = run.def.name, players = participants(run) }
+    eventNumber = eventNumber + 1
+    local payload = { seq = eventNumber, phase = phase, id = run.id, name = run.def.name, players = participants(run) }
     for k, v in pairs(extra or {}) do payload[k] = v end
     local ok, why = TriggerEvent("gm_events:objectives", payload)
     if not ok then print("[gm] gm_events:objectives not raised: " .. tostring(why)) end
@@ -138,19 +140,97 @@ function types.survive(run, item, here, elapsed)
     return clock(item.def.seconds - item.progress), item.progress >= item.def.seconds
 end
 
-function types.custom() return "", false end
+function types.custom(_, item) return item.hookNote or "", false end
+
+function types.interact(run, item)
+    local done, left = run.interactDone or 0, GM.interactLeft(run)
+    local need = math.min(item.def.count, done + left)
+    item.progress = math.min(done, need)
+    return item.progress .. "/" .. need, not run.pending and run.interactSeen == true and done > 0 and done >= need
+end
+
+-- An owner's own kind: their resource is told when it starts and says when it is done.
+local function hookEvent(run, i, phase)
+    local item = run.items[i]
+    local at = item.point or run.anchor
+    eventNumber = eventNumber + 1
+    local players = {}
+    for id in pairs(run.members) do players[#players + 1] = id end
+    table.sort(players)
+    local ok, why = TriggerEvent("gm_events:objectiveHook", {
+        seq = eventNumber, phase = phase, hook = item.def.hook, id = run.id, index = i, name = run.def.name, text = item.text,
+        players = players, position = { x = at.x, y = at.y, z = at.z, bucket = run.anchor.bucket }, radius = run.def.radius,
+    })
+    if not ok then print("[gm] gm_events:objectiveHook not raised: " .. tostring(why)) end
+end
+
+local function stopHooks(run)
+    for i, item in ipairs(run.items) do
+        if item.hooked then
+            item.hooked = nil
+            hookEvent(run, i, "stop")
+        end
+    end
+end
+
+function types.hook(run, item)
+    if not item.hooked and run.firstEntry then
+        item.hooked = true
+        for i, other in ipairs(run.items) do if other == item then hookEvent(run, i, "start") end end
+    end
+    return item.hookNote or "", item.hookDone == true
+end
+
+function GM.patchObjective(id, index, patch)
+    local run = runs[math.tointeger(tonumber(id)) or -1]
+    if not run or run.outcome then return false, "that set has already ended" end
+    local i = math.tointeger(tonumber(index)) or 0
+    local item = run.items[i]
+    if not item then return false, "no such objective" end
+    if item.def.type ~= "hook" and item.def.type ~= "custom" then return false, "only hooked and custom objectives can be set" end
+    if item.done then return false, "already done" end
+    if not item.active then return false, "it is not this objective's turn yet" end
+    if type(patch.note) == "string" then
+        local note = patch.note:gsub("[%c<>]", ""):sub(1, 40)
+        item.hookNote = utf8.len(note) and note or item.hookNote
+    end
+    if patch.done == true then
+        if item.def.type == "hook" then item.hookDone = true else GM.tickObjective(run, i) end
+    end
+    return true
+end
+
+-- Why a set cannot start now, because an owner's resource is not there.
+function GM.hooksMissing(def)
+    for _, o in ipairs(def.items) do
+        if o.type == "hook" and not GM.hookType(o.hook) then return o.hook .. " is not registered (is its resource running?)" end
+    end
+end
 
 local usual = {
     enemies = "Defeat the enemies", kill = "Take out hostiles", boss = "Defeat the boss",
-    reach = "Reach the location", hold = "Hold the area", survive = "Survive",
+    reach = "Reach the location", hold = "Hold the area", survive = "Survive", interact = "Use the objects",
 }
-GM.objectiveTypes = { enemies = true, kill = true, boss = true, reach = true, hold = true, survive = true, custom = true }
+GM.objectiveTypes = { enemies = true, kill = true, boss = true, reach = true, hold = true, survive = true, interact = true, custom = true, hook = true }
 
 -- -------------------------------------------------------------------- display
 
+local showing = {} -- playerId -> our own tracker is up
 local function showTo(playerId, state, key)
     if sent[playerId] == key then return end
     sent[playerId] = key
+    if GM.objectiveDisplay == "event" then
+        eventNumber = eventNumber + 1
+        local ok, why = TriggerEvent("gm_events:objectiveState", { seq = eventNumber, playerId = playerId, state = state })
+        if not ok then print("[gm] gm_events:objectiveState not raised: " .. tostring(why)) end
+        state = false -- and nothing of ours on the screen
+        if showing[playerId] then
+            showing[playerId] = nil
+            TriggerClientEvent("gm_events:objectives", playerId, false)
+        end
+        return
+    end
+    showing[playerId] = state ~= false or nil
     TriggerClientEvent("gm_events:objectives", playerId, state)
 end
 
@@ -211,7 +291,7 @@ local function stateFor(run, m, now, native)
     if run.deadline and not run.outcome then time = clock((run.deadline - now) / 1000) end
     local point, label = currentPoint(run)
     local marker
-    if native and not run.outcome then marker = { x = point.x, y = point.y, z = point.z, label = label } end
+    if (native or GM.objectiveDisplay == "event") and not run.outcome then marker = { x = point.x, y = point.y, z = point.z, label = label } end
     local state = {
         title = run.def.name, status = status, time = time, items = items,
         outcome = run.outcome or "active", away = m.outSince ~= nil, marker = marker,
@@ -227,10 +307,10 @@ local function refresh(run, now, native)
         local state, key = stateFor(run, m, now, native)
         -- Sent again every few seconds: a client may have been loading.
         m.beats = (m.beats or 0) + 1
-        if m.beats >= 10 then m.beats, sent[id] = 0, nil end
+        if m.beats >= 10 and GM.objectiveDisplay ~= "event" then m.beats, sent[id] = 0, nil end
         showTo(id, state, key)
     end
-    updateMap(run, native)
+    updateMap(run, native or GM.objectiveDisplay == "event")
 end
 
 -- ----------------------------------------------------------------- membership
@@ -307,6 +387,7 @@ end
 -- -------------------------------------------------------------------- outcome
 
 local function remove(run)
+    stopHooks(run)
     for id in pairs(run.members) do leave(run, id, true) end
     if run.mapBlip then map("removeBlip", run.mapBlip) end
     runs[run.id] = nil
@@ -315,6 +396,7 @@ end
 local function finish(run, outcome, reason)
     if run.outcome then return end
     run.outcome, run.endsAt = outcome, GetGameTimer() + 6000
+    stopHooks(run)
     for _, m in pairs(run.members) do m.outSince = nil end
     GM.say("scene", outcome == "completed" and run.def.success or run.def.failure)
     print(("[gm] objectives '%s' %s%s"):format(run.def.name, outcome, reason and (": " .. reason) or ""))
@@ -326,6 +408,10 @@ local function markDone(run, i)
     local item = run.items[i]
     if item.done then return end
     item.done, item.note = true, ""
+    if item.hooked then
+        item.hooked = nil
+        hookEvent(run, i, "stop")
+    end
     raise(run, "objective", { index = i, text = item.text })
 end
 
@@ -376,6 +462,7 @@ local function impossible(def, comes)
         if (o.type == "enemies" or o.type == "kill") and not comes.enemies then
             return "this set needs enemies, and none come with it"
         end
+        if o.type == "interact" and not comes.interact then return "this set needs an interactable, and none comes with it" end
         if o.type == "boss" and not comes.boss then return "this set needs a boss, and none comes with it" end
     end
 end
@@ -385,6 +472,8 @@ GM.objectivesImpossible = impossible
 function GM.startObjectives(anchor, def, pending)
     local can, full = GM.canStartObjectives()
     if not can then return nil, full end
+    local missing = GM.hooksMissing(def)
+    if missing then return nil, missing end
     sequence = sequence + 1
     local run = {
         id = sequence, def = def, pending = pending == true, members = {}, credit = {}, enemies = {}, items = {},
@@ -400,11 +489,15 @@ function GM.startObjectives(anchor, def, pending)
                 comes.boss = comes.boss or n.boss
             end
         end
+        comes.interact = GM.adoptInteracts(run, function(at) return within(at, anchor, def.radius) end)
         local why = impossible(def, comes)
-        if why then return nil, "this set needs event enemies or a boss already inside the radius" end
+        if why then
+            GM.releaseInteracts(run)
+            return nil, "what this set needs (enemies, a boss or an interactable) is not inside the radius yet"
+        end
     end
     for i, o in ipairs(def.items) do
-        local item = { def = o, text = o.text or usual[o.type], note = "", progress = 0 }
+        local item = { def = o, text = o.text or usual[o.type] or (o.type == "hook" and GM.hookType(o.hook).label) or o.type, note = "", progress = 0 }
         if o.type == "reach" or o.type == "hold" then
             -- direction 0 is straight ahead of the staff member, 90 to their right
             local a = math.rad(anchor.heading - (o.direction or 0))
@@ -423,7 +516,7 @@ end
 -- nothing, so it ends instead.
 function GM.objectivesReady(run)
     run.pending = false
-    local comes = {}
+    local comes = { interact = run.interactSeen }
     for n in pairs(run.enemies) do
         comes.enemies = true
         comes.boss = comes.boss or n.boss
@@ -464,7 +557,7 @@ function GM.objectiveList()
     for _, run in pairs(runs) do
         local items, players = {}, 0
         for i, item in ipairs(run.items) do
-            items[i] = { text = item.text, note = item.note, done = item.done == true, active = item.active == true }
+            items[i] = { type = item.def.type, hook = item.def.hook, text = item.text, note = item.note, done = item.done == true, active = item.active == true }
         end
         for _ in pairs(run.members) do players = players + 1 end
         list[#list + 1] = {
@@ -475,6 +568,8 @@ function GM.objectiveList()
     table.sort(list, function(a, b) return a.id < b.id end)
     return list
 end
+
+function GM.tickObjective(run, i) markDone(run, i) end
 
 function GM.controlObjectives(id, what, index)
     local run = runs[math.tointeger(tonumber(id)) or -1]
