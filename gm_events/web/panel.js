@@ -62,6 +62,10 @@
     if (s === "tested" || s === "broken") return s;
     return riskOf[record] === "candidate" || riskOf[record] === "soldier" ? riskOf[record] : "risky";
   }
+  function avVerdict(m) {
+    var s = state.status && state.status[m.record];
+    return s === "tested" || s === "broken" ? s : m.tested ? "tested" : "untested";
+  }
   function tag(record) {
     var v = verdict(record);
     var names = { tested: "Tested", broken: "Broken", candidate: "Candidate", soldier: "Soldier, untested", risky: "Risky" };
@@ -92,12 +96,18 @@
   function spawn(kind, def, body) {
     var records = kind === "squad" ? def.units.map(function (u) { return u.record; }) : kind === "boss" ? [def.record] : [];
     if (kind === "av") {
+      var av = arr(state.avModels).filter(function (m) { return m.record === def.record; })[0];
+      if (av && avVerdict(av) === "broken" && !body.sure) {
+        body.sure = true;
+        return confirmThen("This AV is marked broken. Use it anyway?", function () { spawn(kind, def, body); });
+      }
       var squad = original("squad", def.squadId), boss = original("boss", def.bossId);
       if (squad) records = records.concat(arr(squad.units).map(function (u) { return u.record; }));
       if (boss) records.push(boss.record);
     }
     var bad = records.filter(function (r) { var v = verdict(r); return v === "risky" || v === "broken"; });
     body.kind = kind;
+    delete body.sure;
     var go = function () { call("spawn", body); };
     if (!bad.length) {
       var fresh = records.filter(function (r, i, a) { return verdict(r) === "soldier" && a.indexOf(r) === i; });
@@ -557,9 +567,13 @@
     } else if (kind === "loot") {
       lootEditor(box, d, redraw);
     } else {
-      box.appendChild(field("AV", choice(d, "record", arr(state.avModels).map(function (m) {
-        return [m.record, m.name + (m.tested ? "" : " (untested)")];
-      }))));
+      var pickAv = choice(d, "record", arr(state.avModels).map(function (m) {
+        var v = avVerdict(m);
+        return [m.record, m.name + (v === "tested" ? "" : " (" + v + ")")];
+      }));
+      pickAv.addEventListener("change", redraw);
+      box.appendChild(field("AV", pickAv));
+      if (state.canEdit) box.appendChild(field("Note for all staff", noteButtons(d.record)));
       [["distance", "Start distance, m", 40, 200, 5], ["height", "Start height, m", 20, 150, 5],
         ["flightSeconds", "Flight time, s", 2, 15, 0.5], ["direction", "Approach angle, degrees", -180, 180, 15],
         ["blastRadius", "Blast radius, m", 3, 40, 1], ["blastDamage", "Blast damage", 0, 500, 10],

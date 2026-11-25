@@ -180,7 +180,8 @@ local function load()
     end
     local marksRows = Open77.kvp.find("model:", 500) or {}
     for _, row in ipairs(marksRows) do
-        local record = character(row.key:sub(7))
+        local record = row.key:sub(7)
+        record = avNames[record] and record or character(record)
         if record and (row.value == "tested" or row.value == "broken") then status[record] = row.value end
     end
 end
@@ -643,7 +644,7 @@ end
 -- Shared verdict on a model, for every staff member.
 function ops.status(playerId, d)
     if not allowed(playerId, EDIT) then return false, "you need " .. EDIT end
-    local record = character(d.record)
+    local record = type(d.record) == "string" and avNames[d.record] and d.record or character(d.record)
     if not record then return false, "bad model" end
     local ok, why
     if d.value == "tested" or d.value == "broken" then

@@ -2,7 +2,7 @@
 -- Tuning tab instead (server/settings.lua), and staff make presets in the panel,
 -- so updating this mod never needs this file merged.
 GM = {
-    version = "0.9.0",
+    version = "0.9.1",
     maxWave = 12,
 
     av = {
@@ -30,6 +30,26 @@ GM = {
         { record = "Vehicle.av_kurt_barghest", name = "Barghest AV" },
         { record = "Vehicle.av_militech", name = "Militech AV" },
         { record = "Vehicle.av_luxury", name = "Luxury AV" },
+        -- quest versions: some may look or behave oddly outside their mission
+        { record = "Vehicle.q112_arasaka_av", name = "Arasaka AV" },
+        { record = "Vehicle.q000_arasaka_av", name = "Arasaka AV, prologue" },
+        { record = "Vehicle.q000_arasaka_lux_av", name = "Arasaka luxury AV" },
+        { record = "Vehicle.q005_saburo_av", name = "Saburo's AV" },
+        { record = "Vehicle.q115_av_smasher", name = "Smasher's AV" },
+        { record = "Vehicle.q108_arasaka_helicopter", name = "Arasaka helicopter" },
+        { record = "Vehicle.av_trauma", name = "Trauma Team AV" },
+        { record = "Vehicle.max_tac_av", name = "MaxTac AV" },
+        { record = "Vehicle.q001_police_av", name = "NCPD AV" },
+        { record = "Vehicle.q104_av_kang_tao_civilian", name = "Kang Tao AV" },
+        { record = "Vehicle.q101_corpo_av", name = "Corporate AV" },
+        { record = "Vehicle.q116_delamain_av", name = "Delamain AV" },
+        { record = "Vehicle.q114_militech_av", name = "Militech AV, assault" },
+        { record = "Vehicle.q110_huge_cargo_av", name = "Huge cargo AV" },
+        { record = "Vehicle.q110_news_station_av", name = "News AV" },
+        { record = "Vehicle.sa_ep1_airdrop_av", name = "Airdrop AV" },
+        { record = "Vehicle.q306_av_atlus_stealth_nusa", name = "NUSA stealth Atlus" },
+        { record = "Vehicle.q305_myers_av", name = "Myers' AV" },
+        { record = "Vehicle.batty_av", name = "Batty AV" },
     },
 
     minion = "Character.cpz_maelstrom_grunt1_ranged1_lexington_wa",
