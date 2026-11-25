@@ -25,6 +25,7 @@
     <button type="button" data-tab="squad">Squads</button>
     <button type="button" data-tab="av">AV crash</button>
     <button type="button" data-tab="objectives">Objectives</button>
+    <button type="button" data-tab="loot">Loot</button>
     <button type="button" data-tab="announce">Announcements</button>
   </nav>
 
@@ -72,6 +73,7 @@
         <label class="field"><span>Damage multiplier</span><input id="chDamage" type="number" min="0" max="5" step="0.1" value="0.8"></label>
         <label class="field"><span>Scale with players</span><input id="chScale" type="checkbox" checked></label>
         <label class="field"><span>Objectives</span><select id="chObjectives"></select></label>
+        <label class="field"><span>Loot</span><select id="chLoot"></select></label>
         <button id="chSpawn" type="button" class="main">Spawn Chimera</button>
         <p class="dim">Needs a large, open, level area. Every player fighting it needs Phantom Liberty.</p>
       </div>
@@ -91,6 +93,29 @@
     <section data-view="squad"><div class="list" data-list="squad"></div><div class="editor" data-editor="squad"></div></section>
     <section data-view="av"><div class="list" data-list="av"></div><div class="editor" data-editor="av"></div></section>
     <section data-view="objectives"><div class="list" data-list="objectives"></div><div class="editor" data-editor="objectives"></div></section>
+    <section data-view="loot">
+      <div class="list" data-list="loot"></div>
+      <div class="editor" data-editor="loot"></div>
+      <div class="editor narrow" id="lootSettings">
+        <h2>How loot is given</h2>
+        <label class="field"><span>Method</span><select data-loot="lootMethod">
+          <option value="event">My own script (event)</option>
+          <option value="export">My own resource (export)</option>
+          <option value="ground">Dropped on the ground</option>
+          <option value="off">Off</option>
+        </select></label>
+        <label class="field" data-loot-only="export"><span>Resource</span><input type="text" maxlength="64" data-loot="lootResource"></label>
+        <label class="field" data-loot-only="export"><span>Export function</span><input type="text" maxlength="64" data-loot="lootExport"></label>
+        <label class="field" data-loot-only="ground"><span>Seconds on the ground</span><input type="number" min="10" max="3600" data-loot="lootGroundSeconds"></label>
+        <label class="field"><span>Enemy loot goes to</span><select data-loot="lootShare">
+          <option value="everyone">Everyone who hurt it</option>
+          <option value="killer">The last to hurt it</option>
+        </select></label>
+        <label class="field"><span>Objectives: least seconds</span><input type="number" min="0" max="3600" data-loot="lootMinSeconds"></label>
+        <button id="lootSave" type="button" class="main">Save settings</button>
+        <p class="dim" id="lootHelp"></p>
+      </div>
+    </section>
     <section data-view="announce">
       <div class="col">
         <h2>How players are told</h2>

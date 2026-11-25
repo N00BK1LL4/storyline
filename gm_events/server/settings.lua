@@ -68,6 +68,18 @@ local Tune = Open77.tunables.declare({
         label = "Chimera: core", description = "Sent when the core phase begins. - turns it off." },
     announceBosses = { value = true, type = "boolean", apply = "live", group = "Announcements", order = 1,
         label = "Announce bosses", description = "Tells everyone when a boss appears, drops a quarter of its health or dies." },
+    lootMethod = { value = "event", type = "enum", choices = { "event", "export", "ground", "off" }, apply = "live", group = "Loot", order = 1,
+        label = "How loot is given", description = "event: raise gm_events:loot for your script. export: call your own resource. ground: drop it with open77_loot. off: none." },
+    lootResource = { value = "-", type = "string", apply = "live", group = "Loot", order = 2,
+        label = "Export: resource", description = "For the export method: the resource to call. - means not set." },
+    lootExport = { value = "-", type = "string", apply = "live", group = "Loot", order = 3,
+        label = "Export: function", description = "For the export method: the export to call with the award." },
+    lootShare = { value = "everyone", type = "enum", choices = { "everyone", "killer" }, apply = "live", group = "Loot", order = 4,
+        label = "Who earns enemy loot", description = "everyone: each player who hurt it rolls. killer: only the last to hurt it. Bosses always pay everyone who hurt them." },
+    lootMinSeconds = { value = 10, type = "integer", min = 0, max = 3600, unit = "s", apply = "live", group = "Loot", order = 5,
+        label = "Objectives: least time", description = "Seconds a player must have been inside and alive to earn objective loot." },
+    lootGroundSeconds = { value = 300, type = "integer", min = 10, max = 3600, unit = "s", apply = "live", group = "Loot", order = 6,
+        label = "Ground: time on the ground", description = "How long a drop stays." },
     objectiveGrace = { value = 10, type = "integer", min = 0, max = 120, unit = "s", apply = "live", group = "Objectives", order = 1,
         label = "Time to return", description = "How long a player may be outside the area before the objectives are taken off their screen." },
     npcDistance = { value = 6, type = "integer", min = 3, max = 40, unit = "m", apply = "live", group = "Placement", order = 1,
@@ -86,7 +98,8 @@ local Tune = Open77.tunables.declare({
 
 -- The rest of the code keeps reading GM.<name>; each read goes to the live value.
 local live = {
-    objectiveGrace = true, npcDistance = true, eventDistance = true, audienceRadius = true, bossBarRadius = true,
+    lootMethod = true, lootResource = true, lootExport = true, lootShare = true, lootMinSeconds = true,
+    lootGroundSeconds = true, objectiveGrace = true, npcDistance = true, eventDistance = true, audienceRadius = true, bossBarRadius = true,
     maxSquad = true, corpseSeconds = true, mapMarker = true, bossBarStyle = true, announceBosses = true,
 }
 for _, key in ipairs({ "announceMethod", "announceResource", "announceExport", "announceTitle", "announceSeconds",

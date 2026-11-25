@@ -24,9 +24,9 @@
     if (bridge) bridge.emit("gm:error", { text: String(e.message).slice(0, 300) + " @" + e.lineno });
   });
 
-  var state = { boss: [], squad: [], av: [], objectives: [], scenes: [], avModels: [], status: {}, maxSquad: 20, canEdit: false };
+  var state = { boss: [], squad: [], av: [], objectives: [], loot: [], lootItems: [], scenes: [], avModels: [], status: {}, maxSquad: 20, canEdit: false };
   var live = { bosses: [], players: [], hostiles: 0, ghost: false, mark: false };
-  var drafts = { boss: null, squad: null, av: null, objectives: null };
+  var drafts = { boss: null, squad: null, av: null, objectives: null, loot: null };
   var req = 0;
 
   /* ---------------------------------------------------------------- models */
@@ -130,7 +130,7 @@
   }
   $("chSpawn").addEventListener("click", function () {
     var def = { name: $("chName").value, health: parseFloat($("chHealth").value), damage: parseFloat($("chDamage").value),
-      scaling: $("chScale").checked, objectivesId: $("chObjectives").value };
+      scaling: $("chScale").checked, objectivesId: $("chObjectives").value, lootId: $("chLoot").value };
     confirmThen("Spawn the Chimera? It is a very large boss. Check the target is open ground.", function () {
       call("chimera", { def: def });
     });
@@ -173,6 +173,37 @@
   $("announceTest").addEventListener("click", function () {
     if (dirty) return result("Save your changes first, then test", "bad");
     confirmThen("Send a test announcement to every player on the server?", function () { call("announceTest", {}); });
+  });
+
+  /* loot settings */
+  var lootDirty = false;
+  function lootView() {
+    var method = document.querySelector('[data-loot="lootMethod"]').value;
+    all("[data-loot-only]").forEach(function (f) { f.style.display = f.dataset.lootOnly === method ? "" : "none"; });
+    $("lootHelp").textContent = {
+      event: "Your server script handles the gm_events:loot event. Nothing is given until one does.",
+      export: "Calls your resource's export with the award. It must answer true.",
+      ground: "Needs the open77_loot resource. Players pick items up where the enemy fell; objective rewards drop at each player's feet.",
+      off: "Nobody earns loot."
+    }[method] || "";
+  }
+  function renderLootSettings() {
+    $("lootSettings").style.display = state.canEdit ? "" : "none";
+    if (lootDirty || !state.lootSettings) return;
+    all("[data-loot]").forEach(function (i) {
+      var v = state.lootSettings[i.dataset.loot];
+      i.value = v === "-" ? "" : v;
+    });
+    lootView();
+  }
+  all("[data-loot]").forEach(function (i) {
+    i.addEventListener("input", function () { lootDirty = true; lootView(); });
+  });
+  $("lootSave").addEventListener("click", function () {
+    var values = {};
+    all("[data-loot]").forEach(function (i) { values[i.dataset.loot] = i.type === "number" ? parseFloat(i.value) : i.value.trim(); });
+    lootDirty = false;
+    call("lootSave", { values: values });
   });
 
   $("announceSend").addEventListener("click", sendAnnounce);
@@ -276,7 +307,8 @@
       return { name: "", record: first ? first.record : "", distance: 110, height: 70, flightSeconds: 5, direction: 0,
         blastRadius: 12, blastDamage: 0, fireSeconds: 90 };
     },
-    objectives: function () { return { name: "", radius: 60, items: [newGoal("enemies")], ordered: true, timeLimit: 0 }; }
+    objectives: function () { return { name: "", radius: 60, items: [newGoal("enemies")], ordered: true, timeLimit: 0 }; },
+    loot: function () { return { name: "", entries: [{ item: "", min: 1, max: 1, chance: 100 }] }; }
   };
   function summary(kind, d) {
     if (kind === "squad") {
@@ -288,6 +320,10 @@
       if (d.squadId) with_.push((original("squad", d.squadId) || { name: "missing squad" }).name);
       if (d.bossId) with_.push(d.bossId === "chimera" ? "Chimera" : (original("boss", d.bossId) || { name: "missing boss" }).name);
       return short(d.record) + (with_.length ? ", with " + with_.join(" and ") : "");
+    }
+    if (kind === "loot") {
+      var e = arr(d.entries).length;
+      return e + (e === 1 ? " item" : " items");
     }
     if (kind === "objectives") {
       var n = arr(d.items).length;
@@ -306,6 +342,7 @@
         drafts[kind] = JSON.parse(JSON.stringify(d));
         if (kind === "squad") drafts[kind].units = arr(drafts[kind].units);
         if (kind === "objectives") drafts[kind].items = arr(drafts[kind].items);
+        if (kind === "loot") drafts[kind].entries = arr(drafts[kind].entries);
         renderKind(kind);
       });
       b.appendChild(el("small", "", summary(kind, d)));
@@ -378,6 +415,46 @@
       presetOptions("objectives", "No objectives", d.objectivesId, "objectives"))));
     if (note) box.appendChild(el("p", "dim", note));
   }
+  function lootField(box, d, note) {
+    d.lootId = d.lootId || "";
+    box.appendChild(field("Loot", choice(d, "lootId", presetOptions("loot", "No loot", d.lootId, "loot table"))));
+    if (note) box.appendChild(el("p", "dim", note));
+  }
+  function lootEditor(box, d, redraw) {
+    box.appendChild(el("h2", "", "Items: " + d.entries.length + " of 12"));
+    d.entries.forEach(function (e, i) {
+      var card = el("div", "goal");
+      var known = arr(state.lootItems);
+      if (known.length) {
+        var list = [["", "Choose from the server's items"]].concat(known.map(function (k) { return [k.id, k.label]; }));
+        var pickItem = { id: known.some(function (k) { return k.id === e.item; }) ? e.item : "" };
+        var select = choice(pickItem, "id", list);
+        select.addEventListener("change", function () {
+          if (!pickItem.id) return;
+          e.item = pickItem.id;
+          e.label = known.filter(function (k) { return k.id === pickItem.id; })[0].label.slice(0, 40);
+          redraw();
+        });
+        card.appendChild(field("Server item", select));
+      }
+      card.appendChild(field("Item name", textInput(e, "item", 80)));
+      card.appendChild(field("Shown as", textInput(e, "label", 40)));
+      var amounts = el("div", "row");
+      amounts.appendChild(numberInput(e, "min", 1, 1000000, 1));
+      amounts.appendChild(el("span", "dim", "to"));
+      amounts.appendChild(numberInput(e, "max", 1, 1000000, 1));
+      card.appendChild(field("Amount", amounts));
+      card.appendChild(field("Chance, %", numberInput(e, "chance", 0.1, 100, 1)));
+      var remove = btn("Remove", "", function () { d.entries.splice(i, 1); redraw(); });
+      remove.disabled = d.entries.length === 1;
+      card.appendChild(remove);
+      box.appendChild(card);
+    });
+    var add = btn("Add item", "", function () { d.entries.push({ item: "", min: 1, max: 1, chance: 100 }); redraw(); });
+    add.disabled = d.entries.length >= 12;
+    box.appendChild(add);
+    box.appendChild(el("p", "dim", "Item name is the name your server's inventory uses. Ground drops need a game record such as Items.money. Each item is rolled separately."));
+  }
   function tickBox(d, key) {
     var i = el("input");
     i.type = "checkbox"; i.checked = d[key] === true;
@@ -447,6 +524,7 @@
       tick.addEventListener("change", function () { d.scaling = tick.checked; });
       box.appendChild(field("Scale with players", tick));
       objectivesField(box, d);
+      lootField(box, d, "Goes to everyone who hurt the boss.");
       box.appendChild(field("Arrival message", textInput(d, "intro", 160)));
       box.appendChild(field("Defeat message", textInput(d, "outro", 160)));
       box.appendChild(el("p", "dim", "Leave empty to use the server's usual messages."));
@@ -471,8 +549,13 @@
       add.disabled = d.units.length >= 8;
       box.appendChild(add);
       objectivesField(box, d);
+      lootField(box, d, "Rolled for every enemy in the squad.");
     } else if (kind === "objectives") {
       goalEditor(box, d, redraw);
+      box.appendChild(el("h2", "", "Reward"));
+      lootField(box, d, "Each player who took part rolls once when the set is completed.");
+    } else if (kind === "loot") {
+      lootEditor(box, d, redraw);
     } else {
       box.appendChild(field("AV", choice(d, "record", arr(state.avModels).map(function (m) {
         return [m.record, m.name + (m.tested ? "" : " (untested)")];
@@ -513,7 +596,13 @@
 
     var row = el("div", "row");
     var saved = d.id && JSON.stringify(strip(d)) === JSON.stringify(strip(original(kind, d.id)));
-    row.appendChild(btn(kind === "objectives" ? "Start" : "Spawn", "main", function () {
+    if (kind === "loot") {
+      row.appendChild(btn("Try it on me", "main", function () {
+        var same = d.id && JSON.stringify(strip(d)) === JSON.stringify(strip(original(kind, d.id)));
+        if (!same) return result("Save the table first, then try it", "bad");
+        confirmThen("Give yourself one real roll of this table?", function () { call("lootTest", { id: d.id }); });
+      }));
+    } else row.appendChild(btn(kind === "objectives" ? "Start" : "Spawn", "main", function () {
       // Unchanged presets go by id, which needs no editor right.
       var unchanged = d.id && JSON.stringify(strip(d)) === JSON.stringify(strip(original(kind, d.id)));
       if (unchanged) return spawn(kind, d, { id: d.id });
@@ -544,6 +633,11 @@
     var out = {};
     Object.keys(d || {}).sort().forEach(function (k) { if (k !== "id" && k !== "builtin" && d[k] !== "" && !(k === "spawnDelay" && d[k] === 3) && !(k === "warningLead" && d[k] === 6)) out[k] = d[k]; });
     if (out.units) out.units = arr(out.units).map(function (u) { return { record: u.record, count: u.count }; });
+    if (out.entries) out.entries = arr(out.entries).map(function (e) {
+      var entry = {};
+      Object.keys(e).sort().forEach(function (k) { if (e[k] !== "") entry[k] = e[k]; });
+      return entry;
+    });
     if (out.items) out.items = arr(out.items).map(function (g) {
       var item = {};
       Object.keys(g).sort().forEach(function (k) { if (g[k] !== "") item[k] = g[k]; });
@@ -559,15 +653,18 @@
     var tab = document.querySelector('[data-tab="chimera"]');
     tab.style.display = state.chimera ? "" : "none";
     if (!state.chimera && tab.classList.contains("on")) document.querySelector('[data-tab="live"]').click();
-    ["boss", "squad", "av", "objectives"].forEach(renderKind);
-    var select = $("chObjectives"), chosen = select.value;
-    select.textContent = "";
-    presetOptions("objectives", "No objectives", chosen, "objectives").forEach(function (o) {
-      var n = el("option", "", o[1]);
-      n.value = o[0];
-      select.appendChild(n);
+    ["boss", "squad", "av", "objectives", "loot"].forEach(renderKind);
+    renderLootSettings();
+    [["chObjectives", "objectives", "No objectives", "objectives"], ["chLoot", "loot", "No loot", "loot table"]].forEach(function (c) {
+      var select = $(c[0]), chosen = select.value;
+      select.textContent = "";
+      presetOptions(c[1], c[2], chosen, c[3]).forEach(function (o) {
+        var n = el("option", "", o[1]);
+        n.value = o[0];
+        select.appendChild(n);
+      });
+      select.value = chosen;
     });
-    select.value = chosen;
     var box = $("scenes");
     box.textContent = "";
     arr(state.scenes).forEach(function (s) {
@@ -641,6 +738,7 @@
     document.body.classList.remove("open");
     $("confirm").classList.remove("on");
     dirty = false;
+    lootDirty = false;
     closePicker();
   });
   bridge.on("gm:state", function (p) { var s = parse(p); if (s) { Object.keys(s).forEach(function (k) { if (k !== "part") state[k] = s[k]; }); state.status = state.status || {}; renderState(); } });

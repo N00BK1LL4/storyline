@@ -130,6 +130,7 @@ local function coreHit(n, playerId, counter)
     local dx, dy, dz = p.x - s.position.x, p.y - s.position.y, p.z - s.position.z
     if dx * dx + dy * dy + dz * dz > HIT_RANGE * HIT_RANGE then return end
     n.hitAt[playerId] = now
+    GM.lootHit(n, "player:" .. playerId)
     n[counter] = n[counter] + 1
     n.coreHits = n.coreHits + 1
     local needed = GM.coreHits * (n.noScale and 1 or core.scaledHealth(1, n.players))

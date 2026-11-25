@@ -5,6 +5,7 @@
 --   gm_events.edit     create, change or delete presets (not part of command.gm.*)
 local core = GM.core
 local EDIT = "gm_events.edit"
+local LOOT = "gm_events.loot" -- spawn things that give loot; also not part of command.gm.*
 local MAX_PRESETS, MAX_STATUS = 30, 300 -- per kind; keeps each message small
 
 local viewers = {}  -- playerId -> true while the panel is open
@@ -50,6 +51,31 @@ end
 local clean = {}
 
 local DEFAULT_SIZE = 8
+local function itemName(value)
+    if type(value) ~= "string" or #value > 80 then return nil end
+    return value:match("^[%w_%.:%-/]+$")
+end
+
+function clean.loot(d)
+    local name = text(d.name, 32)
+    if not name then return nil, "table name: 1 to 32 characters" end
+    local entries = {}
+    if type(d.entries) == "table" then
+        for i = 1, math.min(#d.entries, 12) do
+            local e = d.entries[i]
+            local item = type(e) == "table" and itemName(e.item) or nil
+            if not item then return nil, "entry " .. i .. ": item name with letters, numbers and _ . : - / only" end
+            local low = math.floor(number(e.min, 1, 1000000, 1))
+            entries[i] = {
+                item = item, label = text(e.label, 40), min = low,
+                max = math.max(low, math.floor(number(e.max, 1, 1000000, low))), chance = number(e.chance, 0.1, 100, 100),
+            }
+        end
+    end
+    if #entries == 0 then return nil, "add at least one item" end
+    return { name = name, entries = entries }
+end
+
 function clean.objectives(d)
     local name = text(d.name, 32)
     if not name then return nil, "set name: 1 to 32 characters" end
@@ -76,6 +102,7 @@ function clean.objectives(d)
     return {
         name = name, radius = radius, items = items, ordered = d.ordered ~= false,
         timeLimit = math.floor(number(d.timeLimit, 0, 7200, 0)), failOnWipe = d.failOnWipe == true or nil,
+        lootId = presetId(d.lootId),
         intro = text(d.intro, 160), success = text(d.success, 160), failure = text(d.failure, 160),
     }
 end
@@ -85,7 +112,7 @@ function clean.boss(d)
     if not name then return nil, "boss name: 1 to 32 characters" end
     if not record then return nil, "choose a boss model" end
     return {
-        objectivesId = presetId(d.objectivesId),
+        objectivesId = presetId(d.objectivesId), lootId = presetId(d.lootId),
         name = name, record = record,
         health = number(d.health, 0.1, 100, 5),
         height = number(d.height, 1, 8, 2.4),
@@ -111,7 +138,7 @@ function clean.squad(d)
     if total > GM.maxSquad then return nil, ("%d units: the limit is %d"):format(total, GM.maxSquad) end
     local pattern = (d.pattern == "line" or d.pattern == "cluster") and d.pattern or "ring"
     return { name = name, units = units, pattern = pattern, radius = number(d.radius, 2, 20, 6),
-        objectivesId = presetId(d.objectivesId) }
+        objectivesId = presetId(d.objectivesId), lootId = presetId(d.lootId) }
 end
 
 function clean.av(d)
@@ -137,7 +164,7 @@ end
 
 -- ------------------------------------------------------------------- presets
 
-local presets = { boss = {}, squad = {}, av = {}, objectives = {} } -- kind -> id -> def
+local presets = { boss = {}, squad = {}, av = {}, objectives = {}, loot = {} } -- kind -> id -> def
 local status = {}                                  -- record -> "tested" | "broken"
 local shipped = {}
 for _, record in ipairs(GM.testedModels) do shipped[record] = "tested" end
@@ -265,11 +292,16 @@ local function sendState(playerId)
     for record, value in pairs(status) do merged[record] = value end
     send(playerId, "gm_events:panel:state", { part = "status", status = merged })
     if allowed(playerId, EDIT) then
+        local settings = {}
+        for _, key in ipairs({ "lootMethod", "lootResource", "lootExport", "lootShare", "lootMinSeconds", "lootGroundSeconds" }) do
+            settings[key] = GM[key]
+        end
+        send(playerId, "gm_events:panel:state", { part = "lootInfo", lootItems = GM.lootItems(), lootSettings = settings })
         local values = {}
         for key in pairs(GM.announceKeys) do values[key] = GM[key] end
         send(playerId, "gm_events:panel:state", { part = "announce", announce = values })
     end
-    for _, kind in ipairs({ "boss", "squad", "av", "objectives" }) do
+    for _, kind in ipairs({ "boss", "squad", "av", "objectives", "loot" }) do
         send(playerId, "gm_events:panel:state", { part = kind, [kind] = listOf(kind) })
     end
 end
@@ -348,6 +380,18 @@ local function find(kind, id)
     end
 end
 
+-- The loot a thing gives, resolved as it is spawned.
+local function attachLoot(playerId, def)
+    if not def or not def.lootId then return true end
+    if not allowed(playerId, LOOT) then return nil, "this gives loot: you need " .. LOOT end
+    local found = find("loot", def.lootId)
+    local set, bad = nil, "the attached loot table no longer exists"
+    if found then set, bad = clean.loot(found) end
+    if not set then return nil, bad end
+    def.lootDef = set
+    return true
+end
+
 -- Turn a crash's references into what to spawn. The same rights apply as for
 -- spawning those things on their own.
 local function attach(playerId, def)
@@ -357,6 +401,8 @@ local function attach(playerId, def)
         local squad, bad = nil, "the attached squad no longer exists"
         if found then squad, bad = clean.squad(found) end
         if not squad then return nil, bad end
+        local paid, noLoot = attachLoot(playerId, squad)
+        if not paid then return nil, noLoot end
         def.squadDef = squad
     end
     if def.bossId == "chimera" then
@@ -369,6 +415,8 @@ local function attach(playerId, def)
         local boss, bad = nil, "the attached boss no longer exists"
         if found then boss, bad = clean.boss(found) end
         if not boss then return nil, bad end
+        local paid, noLoot = attachLoot(playerId, boss)
+        if not paid then return nil, noLoot end
         def.bossDef = boss
     end
     return true
@@ -385,6 +433,8 @@ local function attachObjectives(playerId, def, comes)
     if never then return nil, set.name .. ": " .. never end
     local can, full = GM.canStartObjectives()
     if not can then return nil, full end
+    local paid, noLoot = attachLoot(playerId, set)
+    if not paid then return nil, noLoot end
     def.objectivesDef = set
     return true
 end
@@ -431,6 +481,8 @@ function ops.spawn(playerId, d)
         local attached, missing = attach(playerId, def)
         if not attached then return false, missing end
     end
+    local paid, noLoot = attachLoot(playerId, def)
+    if not paid then return false, noLoot end
     local boss = d.kind == "boss" or def.bossDef ~= nil or def.withChimera == true
     local linked, notLinked = attachObjectives(playerId, def, { boss = boss, enemies = boss or d.kind == "squad" or def.squadDef ~= nil })
     if not linked then return false, notLinked end
@@ -444,6 +496,7 @@ end
 function ops.save(playerId, d)
     if not allowed(playerId, EDIT) then return false, "you need " .. EDIT end
     if not clean[d.kind] or type(d.def) ~= "table" then return false, "bad preset" end
+    if d.kind == "loot" and not allowed(playerId, LOOT) then return false, "you need " .. LOOT end
     local def, bad = clean[d.kind](d.def)
     if not def then return false, bad end
     local id = type(d.id) == "string" and presets[d.kind][d.id] and d.id or nil
@@ -518,6 +571,50 @@ function ops.announceTest(playerId)
     return ok, why or ("sent by " .. GM.announceMethod)
 end
 
+local lootChoices = {
+    lootMethod = { event = true, export = true, ground = true, off = true },
+    lootShare = { everyone = true, killer = true },
+}
+
+function ops.lootSave(playerId, d)
+    if not allowed(playerId, EDIT) then return false, "you need " .. EDIT end
+    if not allowed(playerId, LOOT) then return false, "you need " .. LOOT end
+    local v = type(d.values) == "table" and d.values or {}
+    for key, choices in pairs(lootChoices) do
+        if v[key] ~= nil and not choices[v[key]] then return false, key .. ": unknown choice" end
+    end
+    local wanted = {
+        lootMethod = v.lootMethod, lootShare = v.lootShare,
+        lootMinSeconds = v.lootMinSeconds and math.floor(number(v.lootMinSeconds, 0, 3600, 10)),
+        lootGroundSeconds = v.lootGroundSeconds and math.floor(number(v.lootGroundSeconds, 10, 3600, 300)),
+    }
+    for _, key in ipairs({ "lootResource", "lootExport" }) do
+        local value = v[key]
+        if value == "" then value = "-" end
+        if value ~= nil then
+            if type(value) ~= "string" or #value > 64 or not value:match("^[%w_%-]+$") then
+                return false, key .. ": letters, numbers, _ and - only"
+            end
+            wanted[key] = value
+        end
+    end
+    for key, value in pairs(wanted) do
+        if value ~= GM[key] then
+            local ok, why = Open77.tunables.set(key, value)
+            if not ok then return false, key .. " not saved: " .. tostring(why), true end
+        end
+    end
+    print(("[gm] player %d saved loot settings"):format(playerId))
+    return true, "loot settings saved", true
+end
+
+function ops.lootTest(playerId, d)
+    if not allowed(playerId, EDIT) then return false, "you need " .. EDIT end
+    if not allowed(playerId, LOOT) then return false, "you need " .. LOOT end
+    if not find("loot", d.id) then return false, "save the table first" end
+    return GM.lootTest(clean.loot(find("loot", d.id)), playerId)
+end
+
 local phases = { armored = true, exposed = true, gas = true, core = true, endrepair = true }
 
 function ops.chimera(playerId, d)
@@ -530,14 +627,16 @@ function ops.chimera(playerId, d)
     if type(d.def) ~= "table" then return false, "bad settings" end
     local name = text(d.def.name, 32)
     if not name then return false, "boss name: 1 to 32 characters" end
-    local link = { objectivesId = presetId(d.def.objectivesId) }
+    local link = { objectivesId = presetId(d.def.objectivesId), lootId = presetId(d.def.lootId) }
+    local paid, noLoot = attachLoot(playerId, link)
+    if not paid then return false, noLoot end
     local linked, notLinked = attachObjectives(playerId, link, { boss = true, enemies = true })
     if not linked then return false, notLinked end
     local anchor, why = target(playerId, d, GM.chimera.distance)
     if not anchor then return false, why end
     return withObjectives(anchor, link.objectivesDef, core.actions.chimera, { def = {
         name = name, health = number(d.def.health, 0.1, 100, 2), damage = number(d.def.damage, 0, 5, 0.8),
-        scaling = d.def.scaling ~= false,
+        scaling = d.def.scaling ~= false, lootDef = link.lootDef,
     } })
 end
 
@@ -651,5 +750,5 @@ CreateThread(function()
 end)
 
 load()
-print(("gm_events panel ready: %d boss, %d squad, %d AV, %d objective presets"):format(
-    count(presets.boss), count(presets.squad), count(presets.av), count(presets.objectives)))
+print(("gm_events panel ready: %d boss, %d squad, %d AV, %d objective, %d loot presets"):format(
+    count(presets.boss), count(presets.squad), count(presets.av), count(presets.objectives), count(presets.loot)))

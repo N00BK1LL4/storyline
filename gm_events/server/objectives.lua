@@ -319,6 +319,7 @@ local function finish(run, outcome, reason)
     GM.say("scene", outcome == "completed" and run.def.success or run.def.failure)
     print(("[gm] objectives '%s' %s%s"):format(run.def.name, outcome, reason and (": " .. reason) or ""))
     raise(run, outcome, { reason = reason })
+    if outcome == "completed" and run.def.lootDef then GM.lootObjectives(run.def.lootDef, run.def.name, participants(run)) end
 end
 
 local function markDone(run, i)

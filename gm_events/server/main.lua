@@ -169,7 +169,8 @@ local function spawnNpc(anchor, record, dx, dy, opts)
         maxHealth = 100,
     })
     if not id then return nil, reason end
-    local entry = { id = id, name = opts.name, boss = opts.boss, height = opts.height, outro = opts.outro, event = anchor.event }
+    local entry = { id = id, name = opts.name, boss = opts.boss, height = opts.height, outro = opts.outro, event = anchor.event,
+        lootDef = opts.loot }
     npcs[tostring(id)] = entry
     GM.objectiveEnemy(entry)
     -- create only promises a server record: say so when no game ever shows the body.
@@ -317,6 +318,7 @@ function actions.boss(anchor, step)
     local id, reason = spawnNpc(anchor, preset.record, 0, 0, {
         name = preset.name, boss = true, health = preset.health, damage = preset.damage,
         height = preset.height, noScale = preset.scaling == false, outro = preset.outro,
+        loot = preset.lootDef,
     })
     if not id then return false, "boss refused: " .. tostring(reason) end
     announceBoss("bossAppeared", preset.intro or GM.msgBossAppeared, npcs[tostring(id)])
@@ -347,6 +349,7 @@ function actions.chimera(anchor, step)
     local n = {
         id = state.id, name = def.name, boss = true, chimera = true, height = def.height,
         baseHealth = def.health, baseDamage = def.damage, players = players, noScale = noScale, event = anchor.event,
+        lootDef = step.def and step.def.lootDef or nil,
     }
     npcs[tostring(state.id)] = n
     GM.objectiveEnemy(n)
@@ -416,7 +419,7 @@ function actions.squad(anchor, step)
             if def.pattern == "cluster" then turn = i * 2.39996 end
             dx, dy = math.cos(turn) * r, math.sin(turn) * r
         end
-        local id, reason = spawnNpc(anchor, record, dx, dy, { name = def.name })
+        local id, reason = spawnNpc(anchor, record, dx, dy, { name = def.name, loot = def.lootDef })
         if id then made = made + 1 else last = reason end
     end
     if made == 0 then return false, "squad refused: " .. tostring(last) end
@@ -608,6 +611,7 @@ local function cleanup()
     npcs, vehicles, fires = {}, {}, {}
     clearBursts()
     GM.clearObjectives()
+    GM.clearLoot()
     TriggerClientEvent("gm_events:release", -1)
 end
 
@@ -646,7 +650,7 @@ end
 command("gm.help", function()
     return true, "gm.mark, gm.unmark, gm.announce <text>, gm.boss <" .. names(GM.bosses)
         .. ">, gm.wave <n>, gm.av, gm.boom, gm.fire <sec>, gm.cinematic <sec>, gm.scene <"
-        .. names(GM.scenes) .. ">, gm.chimera, gm.gas, gm.status, gm.killboss, gm.bring, gm.clean, gm.objectives, gm.ghost [on|off], gm.panel, gm.check, gm.stop"
+        .. names(GM.scenes) .. ">, gm.chimera, gm.gas, gm.status, gm.killboss, gm.bring, gm.clean, gm.objectives, gm.loot, gm.ghost [on|off], gm.panel, gm.check, gm.stop"
 end)
 
 command("gm.ghost", function(source, args)
@@ -794,10 +798,11 @@ command("gm.stop", function()
 end)
 
 -- Every argument arrives as a string. Quarter marks are announced once each.
-AddEventHandler("onNpcDamaged", function(npcId, _, amount, health)
+AddEventHandler("onNpcDamaged", function(npcId, from, amount, health)
     local n = npcs[tostring(npcId)]
     if not n then return end
     n.hits, n.missing = (n.hits or 0) + 1, nil
+    GM.lootHit(n, from)
     n.dealt = (n.dealt or 0) + (tonumber(amount) or 0)
     local hp = tonumber(health)
     if not n.boss or not hp or hp <= 0 then return end
@@ -845,10 +850,11 @@ command("gm.killboss", function()
     return killed > 0, killed .. " boss(es) killed"
 end)
 
-local function onDefeat(key, n)
+local function onDefeat(key, n, from)
     if n.settled then return end
     n.settled = true
     GM.objectiveDeath(n)
+    GM.lootDeath(n, from)
     if n.boss then announceBoss("bossDefeated", n.outro or GM.msgBossDefeated, n) end
     if n.chimera and GM.deathWreckSeconds == 0 then return end -- stays until gm.clean or gm.stop
     SetTimeout((n.chimera and GM.deathWreckSeconds or GM.corpseSeconds) * 1000, function()
@@ -859,9 +865,9 @@ local function onDefeat(key, n)
     end)
 end
 
-AddEventHandler("onNpcDied", function(npcId)
+AddEventHandler("onNpcDied", function(npcId, from)
     local key = tostring(npcId)
-    if npcs[key] then onDefeat(key, npcs[key]) end
+    if npcs[key] then onDefeat(key, npcs[key], from) end
 end)
 
 -- Beat a Chimera. It is held in its collapsed state instead of killed; without

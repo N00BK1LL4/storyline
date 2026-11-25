@@ -16,6 +16,7 @@ mode, all from one in-game panel.
    |---|---|
    | `command.gm.*` | Open the panel and run events |
    | `gm_events.edit` | Also create, change and delete presets |
+   | `gm_events.loot` | Also run events that give loot, and edit loot tables |
 
 4. Join, press **Home** (or run `gm.panel`), then run `gm.check` once. It lists
    anything that still needs attention.
@@ -57,6 +58,52 @@ end)
 
 `e.phase` is started, entered, left, objective, completed, failed or ended (stopped by
 staff, no result). Only players still online are listed.
+
+## Loot
+
+Make loot tables in the panel's **Loot** tab and choose one on a boss, squad, Chimera or
+objective set. This mod decides who earned what. Your server hands it out, by the method
+you choose in the same tab.
+
+| Method | What happens |
+|---|---|
+| event | `gm_events:loot` is raised; your script gives the items (default) |
+| export | Your own resource's export is called and must answer `true` |
+| ground | Items drop in the world through `open77_loot` (item names must be `Items.*`) |
+| off | Nobody earns loot |
+
+`examples/loot_bridge.lua` is a ready-made server script: copy it into a resource of yours
+and change the marked lines. The shortest version:
+
+```lua
+AddEventHandler("gm_events:loot", function(award)
+    if award.phase ~= "award" or award.handled then return end
+    for _, i in ipairs(award.items) do
+        MyInventory.add(award.playerId, i.item, i.amount, award.id)
+    end
+end)
+```
+
+An award has `phase`, `id`, `source` (enemy, boss, objectives or test), `name`, `table`,
+`playerId`, `playerName`, `items` (`item`, `label`, `amount`), `position`, `method` and
+`handled`.
+
+- **`id` is unique, and a retry sends the same id.** Remember paid ids and you can never
+  pay twice. Failed awards are in `gm.loot`; `gm.loot retry <id>` sends one again.
+- **Ground drops:** the award has `handled = true` and no player. When one is picked up you
+  get a second event with `phase = "pickup"` and the player. Save the item then.
+- **Your item list:** tell the panel about your items and staff can choose from a list:
+
+```lua
+exports.gm_events:registerItems({ { id = "medkit", label = "Medkit" }, { id = "cash", label = "Eddies" } })
+```
+
+  Call it when your resource starts and again when gm_events restarts. An award can be
+  checked with `exports.gm_events:getAward(id)`.
+
+Bosses pay every player who hurt them; enemies pay everyone who did, or only the last
+(your choice); objectives pay everyone who was there long enough. Ghosted staff and players
+who left never earn anything. Nothing is given for bodies staff clean up.
 
 ## Announcements
 

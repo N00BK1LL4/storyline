@@ -36,6 +36,9 @@ section.on { display: flex; }
 .row input[type=text] { flex: 1; min-width: 200px; }
 .list { width: 420px; overflow-y: auto; }
 .editor { flex: 1; overflow-y: auto; border-left: 1px solid var(--line); padding-left: 24px; }
+.editor.narrow { flex: 0 0 400px; }
+.narrow .field > span { width: 150px; }
+.narrow .field input[type=text], .narrow select { width: 190px; }
 .item { width: 100%; text-align: left; margin-bottom: 6px; display: block; }
 .item small { display: block; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .field { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }

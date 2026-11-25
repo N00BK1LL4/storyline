@@ -1,10 +1,11 @@
 // Example roles for this mod. In Warden, use Players -> Rights, or paste these
 // into the "roles" array of acl.jsonc and give a principal one of them.
 //
-// gm_events.edit is separate on purpose: command.gm.* does NOT include it.
+// gm_events.edit and gm_events.loot are separate on purpose: command.gm.* does NOT include
+// them. gm_events.loot lets staff spawn things that give players loot.
 {
   "roles": [
     { "name": "event-host", "permissions": ["command.gm.*"] },
-    { "name": "event-lead", "permissions": ["command.gm.*", "gm_events.edit"] }
+    { "name": "event-lead", "permissions": ["command.gm.*", "gm_events.edit", "gm_events.loot"] }
   ]
 }
