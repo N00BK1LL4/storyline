@@ -2,7 +2,7 @@
 -- Tuning tab instead (server/settings.lua), and staff make presets in the panel,
 -- so updating this mod never needs this file merged.
 GM = {
-    version = "0.16.0",
+    version = "0.17.0-beta.1",
     maxWave = 12,
 
     av = {
@@ -15,7 +15,7 @@ GM = {
         fireSeconds = 90,
     },
 
-    -- The Chimera belongs to open77_chimera; health and damage are multipliers.
+    -- The Chimera belongs to gm_chimera (or the standard open77_chimera); health and damage are multipliers.
     chimera = { name = "Militech Chimera", health = 2, damage = 0.8, height = 6, scaling = true, distance = 18 },
 
 

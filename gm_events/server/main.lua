@@ -109,11 +109,17 @@ local function scaledHealth(base, players, noScale)
 end
 
 -- The Chimera is another resource's NPC: reach it through its exports only.
+-- Our own package is preferred: there a beaten Chimera stays down.
+function GM.chimeraName()
+    return GetResourceState("gm_chimera") == "running" and "gm_chimera" or "open77_chimera"
+end
+function GM.chimeraRunning() return GetResourceState(GM.chimeraName()) == "running" end
+
 local function chimera(method, ...)
-    local ok, value, reason = pcall(Open77.exports.callSync, "open77_chimera", method, ...)
+    local ok, value, reason = pcall(Open77.exports.callSync, GM.chimeraName(), method, ...)
     if not ok then
-        if GetResourceState("open77_chimera") ~= "running" then return nil, "open77_chimera is not installed or not running" end
-        return nil, "the installed open77_chimera has no " .. method
+        if not GM.chimeraRunning() then return nil, "gm_chimera is not installed or not running" end
+        return nil, "the installed " .. GM.chimeraName() .. " has no " .. method
     end
     return value, reason
 end
@@ -993,7 +999,7 @@ command("gm.check", function(source)
     end
     lines[#lines + 1] = "announcements by " .. how
     lines[#lines + 1] = running("op77_map3d") and "map markers OK" or "no op77_map3d: map markers off (optional)"
-    lines[#lines + 1] = running("open77_chimera") and "Chimera OK" or "no open77_chimera: Chimera tab hidden (optional)"
+    lines[#lines + 1] = GM.chimeraRunning() and "Chimera OK (" .. GM.chimeraName() .. ")" or "no gm_chimera: Chimera tab hidden (optional)"
     if running("open77_pedestrians") then
         local near = GetConvarInt("open77_pedestrians_crowd_max_near_player", 200)
             + GetConvarInt("open77_pedestrians_max_near_player", 256)

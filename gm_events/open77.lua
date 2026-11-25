@@ -1,6 +1,6 @@
--- gm_events: staff-run world events, bosses and cinematic scenes.
+-- Storyline (gm_events): staff-run world events, bosses and cinematic scenes.
 resource "gm_events"
-version "0.16.0"
+version "0.17.0-beta.1"
 auto_start true
 dependency "open77_notifications"
 

@@ -448,7 +448,7 @@ local function sendState(playerId)
     send(playerId, "gm_events:panel:state", {
         part = "base", scenes = scenes, avModels = GM.avModels, fallModels = GM.fallModels, interactModels = GM.interactModels, castPoses = GM.castPoses, castBarks = GM.castBarks,
         maxSquad = GM.maxSquad, canEdit = allowed(playerId, EDIT),
-        chimera = GetResourceState("open77_chimera") == "running",
+        chimera = GM.chimeraRunning(),
     })
     local merged = {}
     for record, value in pairs(shipped) do merged[record] = value end
@@ -575,7 +575,7 @@ local function attach(playerId, def)
     end
     if def.bossId == "chimera" then
         if not allowed(playerId, "command.gm.chimera") then return nil, "you need command.gm.chimera" end
-        if GetResourceState("open77_chimera") ~= "running" then return nil, "open77_chimera is not running" end
+        if not GM.chimeraRunning() then return nil, "gm_chimera is not running" end
         def.withChimera = true
     elseif def.bossId then
         if not allowed(playerId, spawnRight.boss) then return nil, "you need " .. spawnRight.boss end

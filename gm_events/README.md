@@ -1,4 +1,7 @@
-# gm_events
+# Storyline (public test)
+
+> **This is a test version.** Try it on a test server first. What has been played and what
+> has not is under *State of this test* at the end.
 
 A staff toolkit for running live world events on an OPEN//77 server: bosses with
 health bars, hostile squads, AV crashes, cinematic scenes and an invisible staff
@@ -272,9 +275,11 @@ If your export fails, players get the standard toast and the server console says
 
 - `open77_notifications` (part of the Freeroam template)
 - Optional: `op77_map3d` for map markers
-- Optional: `open77_chimera` for the Chimera tab. Every player fighting it needs
-  Phantom Liberty. With the standard package, staff ghost mode cannot make the Chimera
-  ignore you, and a beaten Chimera stands back up instead of staying down.
+- Optional: `gm_chimera` (in this download) for the Chimera tab. Every player fighting it
+  needs Phantom Liberty. Do not load `open77_chimera` as well: they are the same boss. With
+  only the standard `open77_chimera`, the tab works too, but staff ghost mode cannot make
+  the Chimera ignore you and a beaten Chimera stands back up.
+- Optional: `open77_props` for craters and interactable objects, `open77_loot` for ground loot
 
 ## If event NPCs do not appear
 
@@ -301,3 +306,27 @@ place. `gm.check` warns about it. In `server.jsonc`:
 
 The model catalogue in `web/models.js` is generated from OPEN//77's
 `open77_admin` resource. Unofficial fan work, not affiliated with CD PROJEKT RED.
+
+## State of this test
+
+| Part | Seen in the game | Notes |
+|---|---|---|
+| Bosses, squads, AV crash, panel, settings | Yes, one player | AVs: only the Manticore is confirmed |
+| Chimera fight | Yes, one player | Needs Phantom Liberty |
+| Falling capsule, craters | Partly | The escape pod, rocket and container are untried |
+| Objectives, loot, supply drops, interactables, story characters, bookmarks, hooks | No | They pass server tests with simulated players |
+| Anything with several players | No | Please tell us about ghost mode, scaling and sharing |
+
+## Known limits
+
+- Objects and enemies are placed on level ground in front of staff: nothing checks for walls or slopes.
+- Craters are props on top of the ground. Falling things and AVs turn only left and right.
+- Blasts in events do no scripted damage unless you raise it, but a game explosion may still hurt.
+- AVs and falling objects are moved about 20 times a second and may look slightly choppy.
+- Typed `gm.` commands skip the *Before an event starts* check.
+
+## Feedback
+
+Use the discussion on the Workshop page. Include this mod's version, your server build,
+what you did, what you expected, what happened, and the output of `gm.check`. Remove
+license keys, player names and addresses from anything you post.
