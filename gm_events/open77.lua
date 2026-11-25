@@ -1,6 +1,6 @@
 -- gm_events: staff-run world events, bosses and cinematic scenes.
 resource "gm_events"
-version "0.10.0"
+version "0.10.1"
 auto_start true
 dependency "open77_notifications"
 
@@ -30,6 +30,7 @@ permissions {
     "npcs.read",        -- client: find the boss body for its name card
     "world.vehicles",   -- the AV
     "world.loot",       -- ground drops, when the loot method is "ground"
+    "world.props",      -- falling objects built from props, and their wreckage
     "world.effects",    -- fire and blasts
     "world.explosions", -- only needed when a blast has damage above 0
     -- Staff ghost mode.

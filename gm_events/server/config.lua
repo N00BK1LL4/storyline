@@ -2,7 +2,7 @@
 -- Tuning tab instead (server/settings.lua), and staff make presets in the panel,
 -- so updating this mod never needs this file merged.
 GM = {
-    version = "0.10.0",
+    version = "0.10.1",
     maxWave = 12,
 
     av = {
@@ -22,7 +22,14 @@ GM = {
     -- AVs the panel offers. Only the Manticore has been seen flying in-game.
     -- things that can fall from the sky (Falling tab)
     fallModels = {
-        { record = "Vehicle.q115_satellite", name = "Satellite" },
+        -- The game's own q115_satellite has nothing to show outside its mission, so these
+        -- are built from props (needs open77_props): side and up are metres from the middle.
+        { record = "prop:satellite", name = "Satellite", parts = {
+            { model = "container.gas_tank", scale = 2.4 },
+            { model = "debris.corrugated_sheet", side = 3.2, up = 0.6, scale = 1.6 },
+            { model = "debris.corrugated_sheet", side = -3.2, up = 0.6, scale = 1.6 },
+        } },
+        { record = "prop:container", name = "Cargo container", parts = { { model = "container.shipping", scale = 1 } } },
         { record = "Vehicle.q306_orbital_capsule", name = "Orbital capsule" },
         { record = "Vehicle.q301_ejecting_pod", name = "Escape pod" },
         { record = "Vehicle.sa_ep1_airdrop_crate", name = "Airdrop crate" },

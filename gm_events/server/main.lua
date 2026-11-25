@@ -3,6 +3,7 @@ local marks = {}    -- playerId -> anchor
 local npcs = {}     -- tostring(npcId) -> { id, name, boss }
 local vehicles = {} -- vehicleId -> true
 local fires = {}    -- list of fire ids
+local props = {}    -- prop id -> true
 local bursts = {}   -- effect id -> true: short effects, each with its own end
 
 -- A short effect that always ends. Never use Open77.effects.play for these: a
@@ -451,13 +452,87 @@ function actions.cinematic(anchor, step)
     return true
 end
 
--- True once the server streams this vehicle to anyone in the event's bucket.
-local function vehicleSeen(id, bucket)
-    for _, playerId in ipairs(Open77.players.all()) do
-        local p = Open77.players.position(playerId)
-        if p and p.bucket == bucket and Open77.vehicles.isVisibleTo(id, playerId) == true then return true end
+-- What flies: a vehicle, or a set of props moved together.
+local function makeBody(c, at, yaw, bucket, ttlMs)
+    if not c.parts then
+        local id, why = Open77.vehicles.create({ record = c.record, position = at, yaw = yaw, bucket = bucket, ttlMs = ttlMs })
+        if not id then return nil, why end
+        vehicles[id] = true
+        local frozen, problem = Open77.vehicles.setFrozen(id, true)
+        if not frozen then print("[gm] freeze refused: " .. tostring(problem)) end
+        return {
+            seen = function()
+                for _, playerId in ipairs(Open77.players.all()) do
+                    local p = Open77.players.position(playerId)
+                    if p and p.bucket == bucket and Open77.vehicles.isVisibleTo(id, playerId) == true then return true end
+                end
+                return false
+            end,
+            exists = function() return Open77.vehicles.get(id) ~= nil end,
+            move = function(p, facing) return Open77.vehicles.setTransform(id, { x = p.x, y = p.y, z = p.z, yaw = facing }) end,
+            destroy = function()
+                Open77.vehicles.setFrozen(id, false)
+                Open77.vehicles.explode(id)
+            end,
+        }
     end
-    return false
+    if GetResourceState("open77_props") ~= "running" then return nil, "this object needs the open77_props resource" end
+    local parts = {}
+    local function place(part, p, facing)
+        local a = math.rad(facing)
+        local side = part.side or 0
+        return { x = p.x + math.cos(a) * side, y = p.y + math.sin(a) * side, z = p.z + (part.up or 0) }
+    end
+    local function drop()
+        for _, part in ipairs(parts) do
+            props[part.id] = nil
+            Open77.props.remove(part.id)
+        end
+    end
+    for _, part in ipairs(c.parts) do
+        local s = part.scale or 1
+        local id, why = Open77.props.create({
+            model = part.model, position = place(part, at, yaw), yaw = yaw, bucket = bucket, collision = false, physics = "none",
+            scale = { x = s, y = s, z = s }, streamingRadius = 600, streamingHysteresis = 50, ttlMs = ttlMs,
+        })
+        if not id then
+            drop()
+            return nil, part.model .. ": " .. tostring(why)
+        end
+        props[id] = true
+        parts[#parts + 1] = { id = id, side = part.side, up = part.up }
+    end
+    return {
+        seen = function() return true end, -- props have no such question; loadMs covers it
+        exists = function() return props[parts[1].id] == true and Open77.props.get(parts[1].id) ~= nil end,
+        move = function(p, facing)
+            local moved = true
+            for _, part in ipairs(parts) do
+                moved = Open77.props.setTransform(part.id, { position = place(part, p, facing), yaw = facing }) and moved
+            end
+            return moved
+        end,
+        destroy = drop,
+    }
+end
+
+-- One fire that travels with a falling body; it can be seen from far away.
+local function makeFire(at, bucket, effect)
+    local id, why = Open77.effects.create({
+        effect = effect, position = at, bucket = bucket, streamingRadius = 800, streamingHysteresis = 20, ttlMs = 40000,
+    })
+    if not id then
+        print("[gm] trail refused: " .. effect .. " " .. tostring(why))
+        return { move = function() end, stop = function() end }
+    end
+    bursts[id] = true
+    return {
+        move = function(p) Open77.effects.update(id, { position = { x = p.x, y = p.y, z = p.z } }) end,
+        stop = function()
+            bursts[id] = nil
+            Open77.effects.remove(id)
+        end,
+    }
 end
 
 -- The AV dives along a straight line and detonates at the mark. Nobody sits in
@@ -488,13 +563,8 @@ function actions.av(anchor, step)
     local start = {
         x = anchor.x - fx * c.distance, y = anchor.y - fy * c.distance, z = anchor.z + c.height,
     }
-    local id, reason = Open77.vehicles.create({
-        record = c.record, position = start, yaw = yaw, bucket = anchor.bucket, ttlMs = (c.fall and c.intact and 60 or 10) * 60 * 1000,
-    })
-    if not id then return false, "AV refused: " .. tostring(reason) end
-    vehicles[id] = true
-    local frozen, why = Open77.vehicles.setFrozen(id, true)
-    if not frozen then print("[gm] AV freeze refused: " .. tostring(why)) end
+    local body, reason = makeBody(c, start, yaw, anchor.bucket, (c.fall and c.intact and 60 or 10) * 60 * 1000)
+    if not body then return false, (c.fall and c.name or "AV") .. " refused: " .. tostring(reason) end
 
     if c.cinematic then
         actions.cinematic(anchor, { seconds = math.min(20, c.flightSeconds + c.loadMs / 1000 + 3) })
@@ -504,25 +574,30 @@ function actions.av(anchor, step)
     CreateThread(function()
         -- Visible is not the same as loaded: give the model time to build.
         local waited = 0
-        while waited < 4000 and not vehicleSeen(id, anchor.bucket) do
+        while waited < 4000 and not body.seen() do
             Wait(100)
             waited = waited + 100
             if myRun ~= runId then return end
         end
-        if not vehicleSeen(id, anchor.bucket) then
+        if not body.seen() then
             reply(anchor.source, nil, false, (c.fall and c.name or "AV") .. " never streamed to a player")
         end
         Wait(c.loadMs)
 
         local began = GetGameTimer()
         local total = c.flightSeconds * 1000
-        local lastTrail = 0
+        local lastTrail, lastFire = 0, 0
+        local flames = c.fall and { makeFire(start, anchor.bucket, "fire.large"), makeFire(start, anchor.bucket, "smoke.machine") } or {}
+        local function out()
+            for _, f in ipairs(flames) do f.stop() end
+            flames = {}
+        end
         local moved = 0
         while true do
-            if myRun ~= runId then return end
-            if not Open77.vehicles.get(id) then
-                reply(anchor.source, nil, false, "AV disappeared in flight")
-                return
+            if myRun ~= runId then return out() end
+            if not body.exists() then
+                reply(anchor.source, nil, false, (c.fall and c.name or "AV") .. " disappeared in flight")
+                return out()
             end
             local elapsed = GetGameTimer() - began
             local t = math.min(1, elapsed / total)
@@ -538,15 +613,20 @@ function actions.av(anchor, step)
                 z = start.z + (anchor.z + (c.fall and 0.3 or 1) - start.z) * drop,
             }
             local facing = yaw + (c.fall and (1 - t) * (c.spin or 0) or 0)
-            if not Open77.vehicles.setTransform(id, { x = pos.x, y = pos.y, z = pos.z, yaw = facing }) then
-                reply(anchor.source, nil, false, "AV move refused")
+            if not body.move(pos, facing) then
+                reply(anchor.source, nil, false, (c.fall and c.name or "AV") .. " move refused")
                 break
             end
             moved = moved + 1
-            if c.fall and elapsed - lastTrail >= 220 then
-                lastTrail = elapsed
-                GM.burst("fire.large", pos, anchor.bucket, 1.2, 500)
-                GM.burst("smoke.machine", pos, anchor.bucket, 5, 500)
+            if c.fall then
+                if elapsed - lastFire >= 60 then
+                    lastFire = elapsed
+                    for _, f in ipairs(flames) do f.move(pos) end
+                end
+                if elapsed - lastTrail >= 180 then
+                    lastTrail = elapsed
+                    GM.burst("fire.medium", pos, anchor.bucket, 0.9, 600)
+                end
             elseif not c.fall and elapsed - lastTrail >= 400 then
                 lastTrail = elapsed
                 GM.burst("fire.small", pos, anchor.bucket, 1.5)
@@ -555,12 +635,27 @@ function actions.av(anchor, step)
             Wait(33)
         end
 
-        if Open77.vehicles.get(id) then
+        out()
+        if body.exists() then
             if c.fall and c.intact then
-                Open77.vehicles.setTransform(id, { x = anchor.x, y = anchor.y, z = anchor.z, yaw = yaw })
+                body.move(anchor, yaw)
             else
-                Open77.vehicles.setFrozen(id, false)
-                Open77.vehicles.explode(id)
+                body.destroy()
+            end
+        end
+        if c.fall then
+            -- a ring of blasts around the main one reads as a heavy impact
+            for k = 1, 4 do
+                local turn = k / 4 * 2 * math.pi
+                Open77.effects.explosion({ x = anchor.x + math.cos(turn) * 4, y = anchor.y + math.sin(turn) * 4, z = anchor.z },
+                    { radius = 4, damage = 0, bucket = anchor.bucket })
+            end
+            if not c.intact and GetResourceState("open77_props") == "running" then
+                local wreck, whyNot = Open77.props.create({
+                    model = "debris.pile", position = point(anchor), yaw = yaw, bucket = anchor.bucket, collision = false,
+                    scale = { x = 2, y = 2, z = 2 }, streamingRadius = 250, ttlMs = 15 * 60 * 1000,
+                })
+                if wreck then props[wreck] = true else print("[gm] wreckage refused: " .. tostring(whyNot)) end
             end
         end
         local blast, blastReason = Open77.effects.explosion(point(anchor), {
@@ -642,10 +737,13 @@ function actions.fall(anchor, step)
     local def = step and step.def
     if not def then
         local first = GM.fallModels[1]
-        def = { name = first.name, record = first.record, distance = 60, height = 160, flightSeconds = 5, direction = 0,
+        def = { name = first.name, record = first.record, parts = first.parts, distance = 60, height = 160, flightSeconds = 5, direction = 0,
             blastRadius = 14, fireSeconds = 60, debris = 5, debrisRadius = 30, spin = 120 }
     end
     def.fall = true
+    for _, body in ipairs(GM.fallModels) do
+        if body.record == def.record then def.parts = body.parts end
+    end
     return actions.av(anchor, { def = def })
 end
 
@@ -659,6 +757,8 @@ local function cleanup()
         if Open77.vehicles.get(id) then Open77.vehicles.remove(id) end
     end
     for _, id in ipairs(fires) do Open77.effects.removeFire(id) end
+    for id in pairs(props) do Open77.props.remove(id) end
+    props = {}
     npcs, vehicles, fires = {}, {}, {}
     clearBursts()
     GM.clearObjectives()

@@ -227,7 +227,7 @@ local function listOf(kind)
     end
     if kind == "fall" then
         list[#list + 1] = {
-            id = "builtin:satellite", builtin = true, name = "Falling satellite", record = "Vehicle.q115_satellite",
+            id = "builtin:satellite", builtin = true, name = "Falling satellite", record = "prop:satellite",
             distance = 60, height = 160, flightSeconds = 5, direction = 0, spin = 120, blastRadius = 14, blastDamage = 0,
             fireSeconds = 60, debris = 6, debrisRadius = 30,
         }
