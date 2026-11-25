@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GM events</title>
+<link rel="stylesheet" href="panel.css">
+</head>
+<body>
+<div class="panel" role="dialog" aria-label="Event panel">
+  <header>
+    <h1>Event control</h1>
+    <label>Target
+      <select id="target"></select>
+    </label>
+    <button id="ghost" type="button" aria-pressed="false">Ghost: off</button>
+    <button id="stop" type="button" class="danger">Stop everything</button>
+    <button id="close" type="button">Close (Esc)</button>
+  </header>
+
+  <nav id="tabs">
+    <button type="button" data-tab="live" class="on">Live</button>
+    <button type="button" data-tab="boss">Bosses</button>
+    <button type="button" data-tab="chimera">Chimera</button>
+    <button type="button" data-tab="squad">Squads</button>
+    <button type="button" data-tab="av">AV crash</button>
+    <button type="button" data-tab="announce">Announcements</button>
+  </nav>
+
+  <main>
+    <section data-view="live" class="on">
+      <div class="col">
+        <h2>Active now</h2>
+        <div id="bosses"></div>
+        <p id="hostiles" class="dim"></p>
+        <div class="row">
+          <button type="button" data-cmd="gm.bring">Bring to me</button>
+          <button type="button" data-cmd="gm.killboss" class="danger">Kill bosses</button>
+          <button type="button" data-cmd="gm.clean">Clean up bodies</button>
+        </div>
+        <h2>Mark</h2>
+        <div class="row">
+          <button type="button" data-cmd="gm.mark">Mark where I stand</button>
+          <button type="button" data-cmd="gm.unmark">Clear mark</button>
+        </div>
+      </div>
+      <div class="col">
+        <h2>Scenes</h2>
+        <div id="scenes" class="row"></div>
+        <h2>Effects</h2>
+        <div class="row">
+          <button type="button" data-cmd="gm.boom">Blast</button>
+          <button type="button" data-cmd="gm.fire" data-arg="60">Fire, 60 s</button>
+          <button type="button" data-cmd="gm.cinematic" data-arg="6">Camera shot, 6 s</button>
+        </div>
+        <h2>Announce to everyone</h2>
+        <div class="row">
+          <input id="announce" type="text" maxlength="160" placeholder="Message">
+          <button id="announceSend" type="button">Send</button>
+        </div>
+      </div>
+    </section>
+
+    <section data-view="boss"><div class="list" data-list="boss"></div><div class="editor" data-editor="boss"></div></section>
+    <section data-view="chimera">
+      <div class="col">
+        <h2>Spawn</h2>
+        <label class="field"><span>Name</span><input id="chName" type="text" maxlength="32" value="Militech Chimera"></label>
+        <label class="field"><span>Health multiplier</span><input id="chHealth" type="number" min="0.1" max="100" step="0.5" value="2"></label>
+        <label class="field"><span>Damage multiplier</span><input id="chDamage" type="number" min="0" max="5" step="0.1" value="0.8"></label>
+        <label class="field"><span>Scale with players</span><input id="chScale" type="checkbox" checked></label>
+        <button id="chSpawn" type="button" class="main">Spawn Chimera</button>
+        <p class="dim">Needs a large, open, level area. Every player fighting it needs Phantom Liberty.</p>
+      </div>
+      <div class="col">
+        <h2>Jump to phase</h2>
+        <div class="row">
+          <button type="button" data-phase="armored">Armored</button>
+          <button type="button" data-phase="exposed">Exposed</button>
+          <button type="button" data-phase="gas">Gas</button>
+          <button type="button" data-phase="core">Core</button>
+        </div>
+        <p class="dim">Going back a phase replaces the boss with a fresh body.</p>
+        <button type="button" data-phase="endrepair">End the repair now</button>
+        <p class="dim">At 70% health it repairs for 60 seconds and cannot be hurt. From 40% it vents gas. Near the end its core is exposed and the bar refills.</p>
+      </div>
+    </section>
+    <section data-view="squad"><div class="list" data-list="squad"></div><div class="editor" data-editor="squad"></div></section>
+    <section data-view="av"><div class="list" data-list="av"></div><div class="editor" data-editor="av"></div></section>
+    <section data-view="announce">
+      <div class="col">
+        <h2>How players are told</h2>
+        <label class="field"><span>Method</span><select data-set="announceMethod">
+          <option value="notification">On-screen notification</option>
+          <option value="chat">Chat message</option>
+          <option value="export">My own resource (export)</option>
+          <option value="event">My own script (event)</option>
+          <option value="none">Off</option>
+        </select></label>
+        <label class="field" data-only="export"><span>Resource</span><input type="text" maxlength="64" data-set="announceResource"></label>
+        <label class="field" data-only="export"><span>Export function</span><input type="text" maxlength="64" data-set="announceExport"></label>
+        <label class="field"><span>Title</span><input type="text" maxlength="40" data-set="announceTitle"></label>
+        <label class="field"><span>Seconds on screen</span><input type="number" min="2" max="60" data-set="announceSeconds"></label>
+        <p class="dim" id="announceHelp"></p>
+        <div class="row">
+          <button id="announceSave" type="button" class="main">Save</button>
+          <button id="announceTest" type="button">Send a test to everyone</button>
+        </div>
+      </div>
+      <div class="col">
+        <h2>Messages</h2>
+        <label class="field"><span>Boss appears</span><input type="text" maxlength="200" data-set="msgBossAppeared"></label>
+        <label class="field"><span>Boss health</span><input type="text" maxlength="200" data-set="msgBossHealth"></label>
+        <label class="field"><span>Boss defeated</span><input type="text" maxlength="200" data-set="msgBossDefeated"></label>
+        <label class="field"><span>Crash: warning</span><input type="text" maxlength="200" data-set="msgCrashWarning"></label>
+        <label class="field"><span>Crash: survivors</span><input type="text" maxlength="200" data-set="msgCrashSurvivors"></label>
+        <label class="field"><span>Boss fight: intro</span><input type="text" maxlength="200" data-set="msgBossfightIntro"></label>
+        <label class="field"><span>Chimera: gas</span><input type="text" maxlength="200" data-set="msgChimeraGas"></label>
+        <label class="field"><span>Chimera: core</span><input type="text" maxlength="200" data-set="msgChimeraCore"></label>
+        <p class="dim">Use {boss}, {percent} and {players}. Empty a box to turn that message off. A boss preset can have its own arrival and defeat lines.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer id="result" role="status" aria-live="polite">Ready</footer>
+</div>
+
+<div id="picker" class="overlay" role="dialog" aria-label="Choose a model">
+  <div class="box">
+    <div class="row">
+      <input id="search" type="text" placeholder="Search models, for example: maelstrom elite">
+      <select id="category"></select>
+      <select id="risk"></select>
+      <button id="pickCancel" type="button">Cancel</button>
+    </div>
+    <p id="found" class="dim"></p>
+    <div id="models"></div>
+  </div>
+</div>
+
+<div id="confirm" class="overlay" role="alertdialog" aria-label="Confirm">
+  <div class="box small">
+    <p id="confirmText"></p>
+    <div class="row">
+      <button id="confirmYes" type="button" class="danger">Continue</button>
+      <button id="confirmNo" type="button">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script src="models.js"></script>
+<script src="panel.js"></script>
+</body>
+</html>

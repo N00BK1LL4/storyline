@@ -1,0 +1,10 @@
+// Example roles for this mod. In Warden, use Players -> Rights, or paste these
+// into the "roles" array of acl.jsonc and give a principal one of them.
+//
+// gm_events.edit is separate on purpose: command.gm.* does NOT include it.
+{
+  "roles": [
+    { "name": "event-host", "permissions": ["command.gm.*"] },
+    { "name": "event-lead", "permissions": ["command.gm.*", "gm_events.edit"] }
+  ]
+}

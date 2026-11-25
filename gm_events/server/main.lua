@@ -1,0 +1,888 @@
+-- Server authority. Every command is restricted: callers need command.gm.* in the ACL.
+local marks = {}    -- playerId -> anchor
+local npcs = {}     -- tostring(npcId) -> { id, name, boss }
+local vehicles = {} -- vehicleId -> true
+local fires = {}    -- list of fire ids
+local bursts = {}   -- effect id -> true: short effects, each with its own end
+
+-- A short effect that always ends. Never use Open77.effects.play for these: a
+-- one-shot has no handle, so an effect that loops stays in the world for good.
+function GM.burst(effect, position, bucket, seconds)
+    local id, why = Open77.effects.create({
+        effect = effect, bucket = bucket, streamingRadius = 250, ttlMs = math.floor(seconds * 1000),
+        position = { x = position.x, y = position.y, z = position.z },
+    })
+    if not id then return print("[gm] effect refused: " .. effect .. " " .. tostring(why)) end
+    bursts[id] = true
+    SetTimeout(math.floor(seconds * 1000) + 250, function()
+        if bursts[id] then
+            bursts[id] = nil
+            Open77.effects.remove(id) -- already gone if its lifetime ran out
+        end
+    end)
+end
+
+local function clearBursts()
+    for id in pairs(bursts) do Open77.effects.remove(id) end
+    bursts = {}
+end
+local runId = 0     -- gm.stop bumps this; older runs abort
+local ghosts = {}   -- playerId -> what was true before ghost mode
+
+local function reply(source, raw, ok, text)
+    print("[gm] " .. text)
+    if source and source > 0 then
+        TriggerClientEvent("open77:command:result", source, raw or "", ok == true, text)
+    end
+end
+
+
+-- A preset may carry its own arrival and defeat lines.
+local function announceBoss(kind, template, n, percent)
+    if GM.announceBosses then
+        GM.say(kind, template, { boss = n.name, players = n.players or 1, percent = percent })
+    end
+end
+
+local function freshPlayer(source)
+    if not source or source <= 0 then return nil, "run this in-game" end
+    local me = Open77.players.get(source)
+    if not me or not me.position or not me.fresh then return nil, "no fresh position for you yet" end
+    return me
+end
+
+-- Where things happen: the caller's mark, or `distance` metres in front of them.
+local anchorOverride -- set by the panel around one synchronous call
+local function anchorFor(source, distance, ignoreMark)
+    if anchorOverride then return anchorOverride end
+    local me, why = freshPlayer(source)
+    if not me then return nil, why end
+    local mark = marks[source]
+    if mark and not ignoreMark and mark.bucket == (me.bucket or 0) then return mark end
+    local heading = me.heading or 0
+    local a = math.rad(heading)
+    local d = distance or GM.eventDistance
+    return {
+        x = me.position.x - math.sin(a) * d,
+        y = me.position.y + math.cos(a) * d,
+        z = me.position.z,
+        heading = heading,
+        bucket = me.bucket or 0,
+        source = source,
+    }
+end
+
+local function point(anchor)
+    return { x = anchor.x, y = anchor.y, z = anchor.z }
+end
+
+local function distanceSquared(a, b)
+    local dx, dy, dz = a.x - b.x, a.y - b.y, a.z - b.z
+    return dx * dx + dy * dy + dz * dz
+end
+
+-- Ghosted staff are left out so a cinematic never takes their camera.
+local function audience(anchor, event, ...)
+    local limit = GM.audienceRadius * GM.audienceRadius
+    for _, id in ipairs(Open77.players.all()) do
+        local p = not ghosts[id] and Open77.players.position(id) or nil
+        if p and p.bucket == anchor.bucket and distanceSquared(p, anchor) <= limit then
+            TriggerClientEvent(event, id, ...)
+        end
+    end
+end
+
+-- Players in the fight: same bucket, within range, not ghosted staff.
+local function fighters(at, bucket)
+    local radius, count = GM.scaling.radius, 0
+    for _, id in ipairs(Open77.players.all()) do
+        local p = not ghosts[id] and Open77.players.position(id) or nil
+        if p and p.bucket == bucket and distanceSquared(p, at) <= radius * radius then count = count + 1 end
+    end
+    return math.max(1, math.min(GM.scaling.maxPlayers, count))
+end
+
+local function scaledHealth(base, players, noScale)
+    if noScale or not GM.scaling.enabled then return base end
+    return math.min(100, base * (1 + GM.scaling.perPlayer * (players - 1)))
+end
+
+-- The Chimera is another resource's NPC: reach it through its exports only.
+local function chimera(method, ...)
+    local ok, value, reason = pcall(Open77.exports.callSync, "open77_chimera", method, ...)
+    if not ok then
+        if GetResourceState("open77_chimera") ~= "running" then return nil, "open77_chimera is not installed or not running" end
+        return nil, "the installed open77_chimera has no " .. method
+    end
+    return value, reason
+end
+
+-- One read for every kind of event NPC.
+local function readNpc(n)
+    if not n.chimera then return Open77.npcs.get(n.id) end
+    local s = chimera("get", n.id)
+    if not s then return nil end
+    local health, maxHealth = s.health, s.maxHealth
+    if n.defeated then health = 0 end
+    -- The core is the last 1% of the real bar: show it as a bar of its own.
+    if n.core and health > 0 then health, maxHealth = math.min(100, health / (s.maxHealth * 0.01) * 100), 100 end
+    return {
+        health = health, maxHealth = maxHealth, bucket = s.bucket,
+        x = s.position.x, y = s.position.y, z = s.position.z,
+        phase = s.phase, repairing = s.repairing,
+    }
+end
+
+local function setNpcDifficulty(n, difficulty)
+    if n.chimera then
+        local state, why = chimera("setDifficulty", n.id, difficulty)
+        return state ~= nil, why
+    end
+    return Open77.npcs.setDifficulty(n.id, difficulty)
+end
+
+local function removeNpc(n)
+    if n.chimera then return chimera("remove", n.id) end
+    return Open77.npcs.remove(n.id)
+end
+
+local function setNpcAttitude(n, playerId, attitude)
+    if n.chimera then
+        local done, why = chimera("setPlayerAttitude", n.id, playerId, attitude)
+        return done == true, why
+    end
+    return Open77.npcs.setAttitude(n.id, attitude, { towards = { playerId = playerId } })
+end
+
+local function spawnNpc(anchor, record, dx, dy, opts)
+    local id, reason = Open77.npcs.create({
+        record = record,
+        position = { x = anchor.x + dx, y = anchor.y + dy, z = anchor.z },
+        yaw = anchor.heading + 180,
+        bucket = anchor.bucket,
+        aiMode = Open77.npcs.ai.native,
+        damagePolicy = Open77.npcs.damage.mortal,
+        -- Without this, player gunfire never hurts a mortal NPC.
+        behavior = { hitPricing = "platform" },
+        loadout = { combat = { group = "gm_events_hostiles", acquirePlayers = true } },
+        health = 100,
+        maxHealth = 100,
+    })
+    if not id then return nil, reason end
+    npcs[tostring(id)] = { id = id, name = opts.name, boss = opts.boss, height = opts.height, outro = opts.outro }
+    -- create only promises a server record: say so when no game ever shows the body.
+    local ready = Open77.npcs.whenReady(id, 15000)
+    if ready then
+        -- Tell the staff member what their game actually did, and how far away it is.
+        local label = opts.name or "hostile"
+        ready:next(function()
+            local npc, me = Open77.npcs.get(id), nil
+            if anchor.source then me = Open77.players.position(anchor.source) end
+            if not npc or not npcs[tostring(id)] then return end
+            local where = me and (", %.0f m from you"):format(math.sqrt(distanceSquared(npc, me))) or ""
+            reply(anchor.source, nil, true, label .. " is in the world" .. where)
+        end, function(why)
+            if npcs[tostring(id)] then
+                reply(anchor.source, nil, false, label .. " (" .. record .. ") never appeared: " .. tostring(why))
+            end
+        end)
+    end
+    for playerId in pairs(ghosts) do
+        local ok, why = Open77.npcs.setAttitude(id, "friendly", { towards = { playerId = playerId } })
+        if not ok then print("[gm] attitude refused: " .. tostring(why)) end
+    end
+    if opts.health then
+        local players = fighters(anchor, anchor.bucket)
+        local n = npcs[tostring(id)]
+        n.baseHealth, n.players, n.noScale = opts.health, players, opts.noScale
+        local ok, why = Open77.npcs.setDifficulty(id, {
+            healthMultiplier = scaledHealth(opts.health, players, opts.noScale), damageMultiplier = opts.damage or 1,
+        })
+        if not ok then print("[gm] difficulty refused: " .. tostring(why)) end
+    end
+    return id
+end
+
+-- Every toolkit NPC treats a ghost as an ally; nil removes the exception.
+local function setNpcsTowards(playerId, attitude)
+    for _, n in pairs(npcs) do
+        local ok, why = setNpcAttitude(n, playerId, attitude)
+        if not ok then print("[gm] attitude refused: " .. tostring(why)) end
+    end
+end
+
+-- Hide, make non-solid, make invulnerable. Returns the first refusal.
+local function applyGhost(playerId)
+    local problem
+    local ok, why = Open77.players.setVisible(playerId, false)
+    if not ok then problem = "hide refused: " .. tostring(why) end
+    ok, why = Open77.players.setGhosted(playerId, true, { autoClear = false })
+    if not ok then problem = problem or ("non-solid refused: " .. tostring(why)) end
+    ok, why = Open77.players.setGodMode(playerId, true)
+    if not ok then problem = problem or ("god mode refused: " .. tostring(why)) end
+    return problem
+end
+
+local function ghostOff(playerId)
+    local before = ghosts[playerId]
+    if not before then return end
+    ghosts[playerId] = nil
+    setNpcsTowards(playerId, nil)
+    if before.visible then Open77.players.setVisible(playerId, true) end
+    if not before.ghosted then Open77.players.setGhosted(playerId, false) end
+    if not before.god then Open77.players.setGodMode(playerId, false) end
+end
+
+local function ghostOn(playerId)
+    if ghosts[playerId] then return nil end
+    local health = Open77.players.getHealth(playerId)
+    ghosts[playerId] = {
+        visible = Open77.players.isVisible(playerId) ~= false,
+        ghosted = Open77.players.isGhosted(playerId) == true,
+        god = health ~= nil and health.godMode == true,
+    }
+    local problem = applyGhost(playerId)
+    if problem then
+        ghostOff(playerId) -- all or nothing: never leave staff half hidden
+        return problem
+    end
+    setNpcsTowards(playerId, "friendly")
+    return nil
+end
+
+-- The server drops invisibility on death, respawn and bucket change: put it back.
+CreateThread(function()
+    while true do
+        Wait(1000)
+        for playerId, g in pairs(ghosts) do
+            if Open77.players.isVisible(playerId) ~= false then
+                local problem = applyGhost(playerId)
+                if problem ~= g.problem then
+                    g.problem = problem
+                    if problem then reply(playerId, nil, false, "ghost mode interrupted: " .. problem) end
+                end
+            end
+        end
+    end
+end)
+
+-- Late arrivals make a living boss tougher; the percentage left is kept.
+CreateThread(function()
+    while true do
+        Wait(5000)
+        for _, n in pairs(npcs) do
+            if n.baseHealth and GM.scaling.enabled and not n.noScale then
+                local npc = readNpc(n)
+                if npc and npc.health > 0 then
+                    local players = fighters(npc, npc.bucket)
+                    if players > n.players then
+                        local health = n.core and 100 or scaledHealth(n.baseHealth, players)
+                        local ok, why = setNpcDifficulty(n, { healthMultiplier = health })
+                        if ok then
+                            n.players = players
+                            print(("[gm] %s scaled to %d players (%.1fx health)"):format(n.name or "boss", players, health))
+                        else
+                            print("[gm] rescale refused: " .. tostring(why))
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- server/bosshud.lua reads the registry; cleanup replaces the table, so no copies.
+function GM.living() return npcs end
+GM.readNpc = readNpc
+
+local actions = {}
+
+function actions.announce(_, step)
+    return GM.say("scene", step.message and GM[step.message] or step.text)
+end
+
+function actions.boss(anchor, step)
+    local preset = step.def or GM.bosses[step.preset]
+    if not preset then return false, "unknown boss preset: " .. tostring(step.preset) end
+    local id, reason = spawnNpc(anchor, preset.record, 0, 0, {
+        name = preset.name, boss = true, health = preset.health, damage = preset.damage,
+        height = preset.height, noScale = preset.scaling == false, outro = preset.outro,
+    })
+    if not id then return false, "boss refused: " .. tostring(reason) end
+    announceBoss("bossAppeared", preset.intro or GM.msgBossAppeared, npcs[tostring(id)])
+    return true
+end
+
+function actions.wave(anchor, step)
+    local count = math.max(1, math.min(GM.maxWave, math.floor(step.count or 3)))
+    local made, last = 0, nil
+    for i = 1, count do
+        local a = (i / count) * 2 * math.pi
+        local id, reason = spawnNpc(anchor, GM.minion, math.cos(a) * 6, math.sin(a) * 6, {})
+        if id then made = made + 1 else last = reason end
+    end
+    if made == 0 then return false, "wave refused: " .. tostring(last) end
+    return true, made .. " spawned"
+end
+
+function actions.chimera(anchor, step)
+    local def = setmetatable(step.def or {}, { __index = GM.chimera })
+    local players = fighters(anchor, anchor.bucket)
+    local noScale = def.scaling == false
+    local state, reason = chimera("create", {
+        position = point(anchor), yaw = anchor.heading + 180, bucket = anchor.bucket, maxHealth = 100,
+        difficulty = { healthMultiplier = scaledHealth(def.health, players, noScale), damageMultiplier = def.damage },
+    })
+    if not state then return false, "Chimera refused: " .. tostring(reason) end
+    local n = {
+        id = state.id, name = def.name, boss = true, chimera = true, height = def.height,
+        baseHealth = def.health, baseDamage = def.damage, players = players, noScale = noScale,
+    }
+    npcs[tostring(state.id)] = n
+    for playerId in pairs(ghosts) do
+        local ok, why = setNpcAttitude(n, playerId, "friendly")
+        if not ok then print("[gm] attitude refused: " .. tostring(why)) end
+    end
+    announceBoss("bossAppeared", GM.msgBossAppeared, n)
+    return true, def.name .. " created; give it a few seconds to load"
+end
+
+-- Every living Chimera this toolkit made. Some phase changes replace the NPC.
+function actions.chimeraPhase(_, step)
+    local done, last = 0, nil
+    local list = {}
+    for key, n in pairs(npcs) do
+        local now = n.chimera and (not step.only or step.only == n) and chimera("get", n.id) or nil
+        if now and now.alive and not n.defeated then list[#list + 1] = { key = key, n = n } end
+    end
+    for _, item in ipairs(list) do
+        local n, state, reason = item.n, nil, nil
+        if step.phase == "endrepair" then
+            local now = chimera("get", n.id)
+            if now and now.repairing then
+                state, reason = chimera("setHealth", n.id, now.health)
+            else
+                reason = "not repairing"
+            end
+        else
+            state, reason = chimera("setPhase", n.id, step.phase)
+        end
+        if state then
+            done = done + 1
+            if tostring(state.id) ~= item.key then
+                npcs[item.key] = nil
+                n.id, n.quarter, n.deathShown, n.settled = state.id, nil, nil, nil
+                npcs[tostring(state.id)] = n
+            end
+        else
+            last = reason
+        end
+    end
+    if done == 0 then return false, last and ("refused: " .. tostring(last)) or "no Chimera is active" end
+    return true, "Chimera: " .. step.phase
+end
+
+-- step.def = { name, units = { { record, count } }, pattern, radius }
+function actions.squad(anchor, step)
+    local def, list = step.def, {}
+    for _, unit in ipairs(def.units) do
+        for _ = 1, unit.count do
+            if #list < GM.maxSquad then list[#list + 1] = unit.record end
+        end
+    end
+    local made, last = 0, nil
+    local a = math.rad(anchor.heading)
+    local rightX, rightY = math.cos(a), math.sin(a)
+    for i, record in ipairs(list) do
+        local dx, dy
+        if def.pattern == "line" then
+            local along = (i - (#list + 1) / 2) * 2
+            dx, dy = rightX * along, rightY * along
+        else
+            local turn = (i / #list) * 2 * math.pi
+            -- cluster: an even spread over the disc; ring: its edge
+            local r = def.pattern == "cluster" and def.radius * math.sqrt(i / #list) or def.radius
+            if def.pattern == "cluster" then turn = i * 2.39996 end
+            dx, dy = math.cos(turn) * r, math.sin(turn) * r
+        end
+        local id, reason = spawnNpc(anchor, record, dx, dy, { name = def.name })
+        if id then made = made + 1 else last = reason end
+    end
+    if made == 0 then return false, "squad refused: " .. tostring(last) end
+    return true, ("%s: %d of %d spawned%s"):format(def.name, made, #list, last and (", last refusal " .. tostring(last)) or "")
+end
+
+function actions.boom(anchor)
+    local blast, reason = Open77.effects.explosion(point(anchor), { radius = 10, damage = 0, bucket = anchor.bucket })
+    if not blast then return false, "explosion refused: " .. tostring(reason) end
+    audience(anchor, "gm_events:shake")
+    return true
+end
+
+function actions.fire(anchor, step)
+    local id, reason = Open77.effects.fire(point(anchor), {
+        radius = 4,
+        damagePerSecond = 0,
+        durationMs = math.floor((step.seconds or 60) * 1000),
+        vfx = "fire.large",
+        bucket = anchor.bucket,
+    })
+    if not id then return false, "fire refused: " .. tostring(reason) end
+    fires[#fires + 1] = id
+    return true
+end
+
+function actions.cinematic(anchor, step)
+    audience(anchor, "gm_events:cinematic", anchor.x, anchor.y, anchor.z, anchor.heading, step.seconds or 6)
+    return true
+end
+
+-- True once the server streams this vehicle to anyone in the event's bucket.
+local function vehicleSeen(id, bucket)
+    for _, playerId in ipairs(Open77.players.all()) do
+        local p = Open77.players.position(playerId)
+        if p and p.bucket == bucket and Open77.vehicles.isVisibleTo(id, playerId) == true then return true end
+    end
+    return false
+end
+
+-- The AV dives along a straight line and detonates at the mark. Nobody sits in
+-- it, so no client simulates it: the server moves a frozen body every tick.
+function actions.av(anchor, step)
+    local c = GM.av
+    if step and step.def then c = setmetatable(step.def, { __index = GM.av }) end
+    local heading = anchor.heading + (c.direction or 0)
+    local h = math.rad(heading)
+    local fx, fy = math.cos(h), math.sin(h) -- crosses the staff member's view
+    local yaw = heading - 90
+    local start = {
+        x = anchor.x - fx * c.distance, y = anchor.y - fy * c.distance, z = anchor.z + c.height,
+    }
+    local id, reason = Open77.vehicles.create({
+        record = c.record, position = start, yaw = yaw, bucket = anchor.bucket, ttlMs = 10 * 60 * 1000,
+    })
+    if not id then return false, "AV refused: " .. tostring(reason) end
+    vehicles[id] = true
+    local frozen, why = Open77.vehicles.setFrozen(id, true)
+    if not frozen then print("[gm] AV freeze refused: " .. tostring(why)) end
+
+    if c.warning then GM.say("scene", c.warning) end
+    if c.cinematic then
+        actions.cinematic(anchor, { seconds = math.min(20, c.flightSeconds + c.loadMs / 1000 + 3) })
+    end
+
+    local myRun = runId
+    CreateThread(function()
+        -- Visible is not the same as loaded: give the model time to build.
+        local waited = 0
+        while waited < 4000 and not vehicleSeen(id, anchor.bucket) do
+            Wait(100)
+            waited = waited + 100
+            if myRun ~= runId then return end
+        end
+        if not vehicleSeen(id, anchor.bucket) then
+            reply(anchor.source, nil, false, "AV never streamed to a player")
+        end
+        Wait(c.loadMs)
+
+        local began = GetGameTimer()
+        local total = c.flightSeconds * 1000
+        local lastTrail = 0
+        local moved = 0
+        while true do
+            if myRun ~= runId then return end
+            if not Open77.vehicles.get(id) then
+                reply(anchor.source, nil, false, "AV disappeared in flight")
+                return
+            end
+            local elapsed = GetGameTimer() - began
+            local t = math.min(1, elapsed / total)
+            local drop = t * t -- level at first, then a steepening dive
+            local pos = {
+                x = start.x + (anchor.x - start.x) * t,
+                y = start.y + (anchor.y - start.y) * t,
+                z = start.z + (anchor.z + 1 - start.z) * drop,
+            }
+            if not Open77.vehicles.setTransform(id, { x = pos.x, y = pos.y, z = pos.z, yaw = yaw }) then
+                reply(anchor.source, nil, false, "AV move refused")
+                break
+            end
+            moved = moved + 1
+            if elapsed - lastTrail >= 400 then
+                lastTrail = elapsed
+                GM.burst("fire.small", pos, anchor.bucket, 1.5)
+            end
+            if t >= 1 then break end
+            Wait(33)
+        end
+
+        if Open77.vehicles.get(id) then
+            Open77.vehicles.setFrozen(id, false)
+            Open77.vehicles.explode(id)
+        end
+        local blast, blastReason = Open77.effects.explosion(point(anchor), {
+            radius = c.blastRadius, damage = c.blastDamage, bucket = anchor.bucket,
+        })
+        if not blast then print("[gm] AV blast refused: " .. tostring(blastReason)) end
+        audience(anchor, "gm_events:shake")
+        if c.fireSeconds > 0 then
+            local lit, fireReason = actions.fire(anchor, { seconds = c.fireSeconds })
+            if not lit then print("[gm] " .. tostring(fireReason)) end
+        end
+        reply(anchor.source, nil, true, ("AV down after %d position updates (waited %d ms to stream)"):format(moved, waited))
+
+        -- Whoever came with the crash. The panel resolved these when it started.
+        if not (c.squadDef or c.bossDef or c.withChimera) then return end
+        Wait(math.floor((c.spawnDelay or 3) * 1000))
+        if myRun ~= runId then return end
+        GM.say("scene", c.arrival or GM.msgCrashSurvivors)
+        local function report(what, ok, why)
+            if not ok then reply(anchor.source, nil, false, what .. ": " .. tostring(why)) end
+        end
+        if c.squadDef then report("crash squad", actions.squad(anchor, { def = c.squadDef })) end
+        if c.bossDef or c.withChimera then
+            -- clear of the wreck, on the side the staff member was facing from
+            local a, d = math.rad(anchor.heading), c.withChimera and 14 or 8
+            local beside = {
+                x = anchor.x + math.sin(a) * d, y = anchor.y - math.cos(a) * d, z = anchor.z,
+                heading = anchor.heading, bucket = anchor.bucket, source = anchor.source,
+            }
+            if c.bossDef then report("crash boss", actions.boss(beside, { def = c.bossDef })) end
+            if c.withChimera then report("crash Chimera", actions.chimera(beside, {})) end
+        end
+    end)
+    return true
+end
+
+local function cleanup()
+    runId = runId + 1
+    for _, n in pairs(npcs) do
+        if n.chimera then GM.clearWreck(n) end
+        removeNpc(n)
+    end
+    for id in pairs(vehicles) do
+        if Open77.vehicles.get(id) then Open77.vehicles.remove(id) end
+    end
+    for _, id in ipairs(fires) do Open77.effects.removeFire(id) end
+    npcs, vehicles, fires = {}, {}, {}
+    clearBursts()
+    TriggerClientEvent("gm_events:release", -1)
+end
+
+local function names(t)
+    local list = {}
+    for k in pairs(t) do list[#list + 1] = k end
+    table.sort(list)
+    return table.concat(list, ", ")
+end
+
+local handlers = {}
+local function command(name, handler)
+    handlers[name] = handler
+    RegisterCommand(name, function(source, args, raw)
+        local ok, done, text = pcall(handler, source, args)
+        if not ok then return reply(source, raw, false, "error: " .. tostring(done)) end
+        reply(source, raw, done, text or (done and "done" or "failed"))
+    end, true)
+end
+
+-- A command that runs one action at the caller's anchor.
+local function placed(name, build, distance)
+    command(name, function(source, args)
+        local anchor, why = anchorFor(source, distance and distance())
+        if not anchor then return false, why end
+        local step, bad = build(args)
+        if not step then return false, bad end
+        return actions[step.action](anchor, step)
+    end)
+end
+
+local function seconds(value, default, max)
+    return math.max(1, math.min(max, tonumber(value) or default))
+end
+
+command("gm.help", function()
+    return true, "gm.mark, gm.unmark, gm.announce <text>, gm.boss <" .. names(GM.bosses)
+        .. ">, gm.wave <n>, gm.av, gm.boom, gm.fire <sec>, gm.cinematic <sec>, gm.scene <"
+        .. names(GM.scenes) .. ">, gm.chimera, gm.gas, gm.status, gm.killboss, gm.bring, gm.clean, gm.ghost [on|off], gm.panel, gm.check, gm.stop"
+end)
+
+command("gm.ghost", function(source, args)
+    local me, why = freshPlayer(source)
+    if not me then return false, why end
+    local enable = not ghosts[source]
+    if args[1] == "on" then enable = true elseif args[1] == "off" then enable = false end
+    if not enable then
+        ghostOff(source)
+        return true, "ghost mode OFF: players and NPCs can see you"
+    end
+    local problem = ghostOn(source)
+    if problem then return false, problem end
+    return true, "ghost mode ON: hidden, non-solid, invulnerable, ignored by event NPCs"
+end)
+
+command("gm.mark", function(source)
+    local me, why = freshPlayer(source)
+    if not me then return false, why end
+    marks[source] = {
+        x = me.position.x, y = me.position.y, z = me.position.z,
+        heading = me.heading or 0, bucket = me.bucket or 0, source = source,
+    }
+    return true, "marked here; step away before triggering anything"
+end)
+
+command("gm.unmark", function(source)
+    marks[source] = nil
+    return true, "mark cleared; events land in front of you again"
+end)
+
+command("gm.announce", function(_, args)
+    local words = {}
+    for i = 1, args.n or #args do words[#words + 1] = tostring(args[i]) end
+    if #words == 0 then return false, "usage: gm.announce <text>" end
+    return GM.say("staff", table.concat(words, " "))
+end)
+
+placed("gm.boss", function(args)
+    if not GM.bosses[args[1] or ""] then return nil, "usage: gm.boss <" .. names(GM.bosses) .. ">" end
+    return { action = "boss", preset = args[1] }
+end, function() return GM.npcDistance end)
+placed("gm.chimera", function() return { action = "chimera" } end, function() return GM.chimera.distance end)
+placed("gm.wave", function(args)
+    return { action = "wave", count = tonumber(args[1]) or 3 }
+end, function() return GM.npcDistance + 6 end) -- the wave is a 6 m ring around this point
+
+-- Pull every living event NPC in front of the caller.
+command("gm.bring", function(source)
+    local anchor, why = anchorFor(source, GM.npcDistance, true)
+    if not anchor then return false, why end
+    local moved, last = 0, nil
+    for _, n in pairs(npcs) do
+        local npc = not n.chimera and Open77.npcs.get(n.id) or nil -- the Chimera cannot be moved
+        if npc and npc.bucket == anchor.bucket and npc.health > 0 then
+            local ok, reason = Open77.npcs.setTransform(n.id, {
+                position = { x = anchor.x + moved * 1.5, y = anchor.y, z = anchor.z },
+                yaw = anchor.heading + 180,
+            })
+            if ok then moved = moved + 1 else last = reason end
+        end
+    end
+    if moved == 0 then return false, "nothing to bring" .. (last and (": " .. tostring(last)) or "") end
+    return true, moved .. " brought to you"
+end)
+
+placed("gm.av", function() return { action = "av" } end)
+placed("gm.boom", function() return { action = "boom" } end)
+placed("gm.fire", function(args) return { action = "fire", seconds = seconds(args[1], 60, 600) } end)
+placed("gm.cinematic", function(args) return { action = "cinematic", seconds = seconds(args[1], 6, 20) } end)
+
+command("gm.scene", function(source, args)
+    local scene = GM.scenes[args[1] or ""]
+    if not scene then return false, "usage: gm.scene <" .. names(GM.scenes) .. ">" end
+    local anchor, why = anchorFor(source)
+    if not anchor then return false, why end
+    local myRun = runId
+    CreateThread(function()
+        for _, step in ipairs(scene) do
+            if myRun ~= runId then return end
+            if step.wait then
+                Wait(math.floor(step.wait * 1000))
+            else
+                local run = actions[step.action]
+                local ok, reason = false, "unknown action"
+                if run then ok, reason = run(anchor, step) end
+                if not ok then
+                    reply(source, nil, false, "scene step " .. tostring(step.action) .. ": " .. tostring(reason))
+                end
+            end
+        end
+    end)
+    return true, "scene started; gm.stop ends it"
+end)
+
+-- What a new owner needs to know, in plain words.
+command("gm.check", function(source)
+    local function running(name) return GetResourceState(name) == "running" end
+    local lines = { "version " .. tostring(GM.version) }
+    lines[#lines + 1] = running("open77_notifications") and "notifications OK" or "PROBLEM: open77_notifications is not running"
+    local how = GM.announceMethod
+    if how == "chat" and not running("open77_chat") then how = how .. " PROBLEM: open77_chat is not running" end
+    if how == "export" and (GM.announceResource == "-" or not running(GM.announceResource)) then
+        how = how .. " PROBLEM: " .. GM.announceResource .. " is not running"
+    end
+    lines[#lines + 1] = "announcements by " .. how
+    lines[#lines + 1] = running("op77_map3d") and "map markers OK" or "no op77_map3d: map markers off (optional)"
+    lines[#lines + 1] = running("open77_chimera") and "Chimera OK" or "no open77_chimera: Chimera tab hidden (optional)"
+    if running("open77_pedestrians") then
+        local near = GetConvarInt("open77_pedestrians_crowd_max_near_player", 200)
+            + GetConvarInt("open77_pedestrians_max_near_player", 256)
+        if near > 380 then
+            lines[#lines + 1] = ("WARNING: the crowd may put %d pedestrians near a player and leave no room for event NPCs; see README"):format(near)
+        else
+            lines[#lines + 1] = "crowd size OK (" .. near .. ")"
+        end
+    end
+    if source and source > 0 then
+        lines[#lines + 1] = Open77.acl.isAllowed(source, "gm_events.edit") == true and "you can edit presets" or "you cannot edit presets (gm_events.edit)"
+    end
+    return true, table.concat(lines, " | ")
+end)
+
+-- Remove the dead only; the fight goes on.
+command("gm.clean", function()
+    local dead = {}
+    for key, n in pairs(npcs) do
+        local npc = readNpc(n)
+        if not npc or npc.health <= 0 then dead[key] = n end
+    end
+    clearBursts()
+    local count = 0
+    for key, n in pairs(dead) do
+        npcs[key] = nil
+        if n.chimera then GM.clearWreck(n) end
+        removeNpc(n)
+        count = count + 1
+    end
+    return true, count .. " bodies removed"
+end)
+
+command("gm.stop", function()
+    cleanup()
+    return true, "stopped and cleaned up"
+end)
+
+-- Every argument arrives as a string. Quarter marks are announced once each.
+AddEventHandler("onNpcDamaged", function(npcId, _, amount, health)
+    local n = npcs[tostring(npcId)]
+    if not n then return end
+    n.hits = (n.hits or 0) + 1
+    n.dealt = (n.dealt or 0) + (tonumber(amount) or 0)
+    local hp = tonumber(health)
+    if not n.boss or not hp or hp <= 0 then return end
+    for _, mark in ipairs({ 25, 50, 75 }) do
+        if hp <= mark then
+            if not n.quarter or mark < n.quarter then
+                n.quarter = mark
+                announceBoss("bossHealth", GM.msgBossHealth, n, mark)
+            end
+            break
+        end
+    end
+end)
+
+command("gm.status", function()
+    local lines = {}
+    for _, n in pairs(npcs) do
+        local npc = readNpc(n)
+        if npc and (n.boss or (n.hits or 0) > 0) then
+            local line = ("%s %.1f/%.0f hp, %d hits, %.2f total damage"):format(
+                n.name or "hostile", npc.health, npc.maxHealth, n.hits or 0, n.dealt or 0)
+            if n.core then
+                line = line .. (", core hits %d (shots %d, parts %d)"):format(n.coreHits or 0, n.coreShots or 0, n.coreParts or 0)
+            end
+            if n.baseHealth then
+                line = line .. (", %.1fx health for %d player(s)"):format(scaledHealth(n.baseHealth, n.players, n.noScale), n.players)
+            end
+            lines[#lines + 1] = line
+        end
+    end
+    if #lines == 0 then return true, "no bosses or damaged hostiles" end
+    return true, table.concat(lines, " | ")
+end)
+
+-- Finish every boss, for when a fight has run long enough.
+command("gm.killboss", function()
+    local killed = 0
+    for _, n in pairs(npcs) do
+        if n.boss then
+            local done
+            if n.chimera then done = GM.defeatChimera(n) else done = Open77.npcs.kill(n.id, "gm") end
+            if done then killed = killed + 1 end
+        end
+    end
+    return killed > 0, killed .. " boss(es) killed"
+end)
+
+local function onDefeat(key, n)
+    if n.settled then return end
+    n.settled = true
+    if n.boss then announceBoss("bossDefeated", n.outro or GM.msgBossDefeated, n) end
+    if n.chimera and GM.deathWreckSeconds == 0 then return end -- stays until gm.clean or gm.stop
+    SetTimeout((n.chimera and GM.deathWreckSeconds or GM.corpseSeconds) * 1000, function()
+        if npcs[key] == n then
+            npcs[key] = nil
+            removeNpc(n)
+        end
+    end)
+end
+
+AddEventHandler("onNpcDied", function(npcId)
+    local key = tostring(npcId)
+    if npcs[key] then onDefeat(key, npcs[key]) end
+end)
+
+-- Beat a Chimera. It is held in its collapsed state instead of killed; without
+-- that export, or with the setting off, it dies the ordinary way.
+function GM.defeatChimera(n)
+    if n.defeated then return false end
+    local s = chimera("get", n.id)
+    if not s or not s.alive then return false end
+    if GM.stayDown then
+        if s.phase ~= "core" then
+            n.core = true -- the phase loop must not start a fresh core for it
+            chimera("setPhase", n.id, "core")
+        end
+        local held, why = chimera("holdDown", n.id)
+        if held then
+            n.defeated = true
+            onDefeat(tostring(n.id), n)
+            return true
+        end
+        print("[gm] Chimera cannot be held down: " .. tostring(why))
+    end
+    return chimera("kill", n.id) ~= nil
+end
+
+AddEventHandler("onResourceStop", function(name)
+    if name ~= GetCurrentResourceName() then return end
+    local active = {}
+    for playerId in pairs(ghosts) do active[#active + 1] = playerId end
+    for _, playerId in ipairs(active) do ghostOff(playerId) end
+    cleanup()
+end)
+
+-- Ids are reused: never let the next player inherit a mark or an NPC truce.
+AddEventHandler("onPlayerDisconnected", function(id)
+    local playerId = tonumber(id)
+    if not playerId then return end
+    marks[playerId] = nil
+    if ghosts[playerId] then
+        ghosts[playerId] = nil
+        setNpcsTowards(playerId, nil)
+    end
+end)
+
+-- What server/panel.lua may use. Rights are checked there, per click.
+GM.core = {
+    actions = actions,
+    handlers = handlers,
+    command = command,
+    reply = reply,
+    isGhost = function(playerId) return ghosts[playerId] ~= nil end,
+    mark = function(playerId) return marks[playerId] end,
+    anchorFor = anchorFor,
+    freshPlayer = freshPlayer,
+    chimera = chimera,
+    setNpcDifficulty = setNpcDifficulty,
+    scaledHealth = scaledHealth,
+    shake = function(anchor) audience(anchor, "gm_events:shake") end,
+    withAnchor = function(anchor, fn, ...)
+        anchorOverride = anchor
+        local ok, a, b = pcall(fn, ...)
+        anchorOverride = nil
+        if not ok then return false, "error: " .. tostring(a) end
+        return a, b
+    end,
+}
+
+print("gm_events ready; gm.help")

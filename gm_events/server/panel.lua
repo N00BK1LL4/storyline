@@ -1,0 +1,546 @@
+-- The staff panel's server half. The page holds no authority: every message is
+-- checked against the ACL and every value is validated here.
+--   command.gm.panel   open the panel
+--   command.gm.<x>     the same right the typed command needs
+--   gm_events.edit     create, change or delete presets (not part of command.gm.*)
+local core = GM.core
+local EDIT = "gm_events.edit"
+local MAX_PRESETS, MAX_STATUS = 30, 300 -- per kind; keeps each message small
+
+local viewers = {}  -- playerId -> true while the panel is open
+local lastCall = {} -- playerId -> ms
+
+local function allowed(playerId, right)
+    return Open77.acl.isAllowed(playerId, right) == true
+end
+
+-- ---------------------------------------------------------------- validation
+
+local function number(value, low, high, default)
+    local n = tonumber(value)
+    if not n or n ~= n then return default end
+    return math.max(low, math.min(high, n))
+end
+
+-- One printable line of at most `max` characters, or nil.
+local function text(value, max)
+    if type(value) ~= "string" or #value > max * 4 then return nil end
+    local clean = value:gsub("[%c<>]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+    local length = utf8.len(clean)
+    if not length or length == 0 or length > max then return nil end
+    return clean
+end
+
+local function character(value)
+    if type(value) ~= "string" or #value > 160 then return nil end
+    local lower = value:lower()
+    if lower:find("child", 1, true) or lower:find("kid", 1, true) then return nil end -- never in combat events
+    return value:match("^Character%.[%w_%-%.]+$")
+end
+
+local avNames = {}
+for _, av in ipairs(GM.avModels) do avNames[av.record] = true end
+
+-- A reference to a saved or built-in preset.
+local function presetId(value)
+    if type(value) ~= "string" or #value > 48 then return nil end
+    return value:match("^[%w:_%-]+$")
+end
+
+local clean = {}
+
+function clean.boss(d)
+    local name, record = text(d.name, 32), character(d.record)
+    if not name then return nil, "boss name: 1 to 32 characters" end
+    if not record then return nil, "choose a boss model" end
+    return {
+        name = name, record = record,
+        health = number(d.health, 0.1, 100, 5),
+        height = number(d.height, 1, 8, 2.4),
+        scaling = d.scaling ~= false,
+        intro = text(d.intro, 160), outro = text(d.outro, 160), -- nil: the usual message
+    }
+end
+
+function clean.squad(d)
+    local name = text(d.name, 32)
+    if not name then return nil, "squad name: 1 to 32 characters" end
+    if type(d.units) ~= "table" then return nil, "add at least one unit" end
+    local units, total = {}, 0
+    for i = 1, math.min(8, #d.units) do
+        local u = d.units[i]
+        local record = type(u) == "table" and character(u.record) or nil
+        if not record then return nil, "unit " .. i .. ": choose a model" end
+        local count = math.floor(number(u.count, 1, GM.maxSquad, 1))
+        units[#units + 1] = { record = record, count = count }
+        total = total + count
+    end
+    if total == 0 then return nil, "add at least one unit" end
+    if total > GM.maxSquad then return nil, ("%d units: the limit is %d"):format(total, GM.maxSquad) end
+    local pattern = (d.pattern == "line" or d.pattern == "cluster") and d.pattern or "ring"
+    return { name = name, units = units, pattern = pattern, radius = number(d.radius, 2, 20, 6) }
+end
+
+function clean.av(d)
+    local name = text(d.name, 32)
+    if not name then return nil, "crash name: 1 to 32 characters" end
+    if not avNames[d.record] then return nil, "choose an AV" end
+    return {
+        name = name, record = d.record,
+        distance = number(d.distance, 40, 200, 110),
+        height = number(d.height, 20, 150, 70),
+        flightSeconds = number(d.flightSeconds, 2, 15, 5),
+        direction = number(d.direction, -180, 180, 0),
+        blastRadius = number(d.blastRadius, 3, 40, 12),
+        blastDamage = number(d.blastDamage, 0, 500, 0),
+        fireSeconds = number(d.fireSeconds, 0, 300, 90),
+        squadId = presetId(d.squadId), bossId = presetId(d.bossId), -- nil: nobody
+        spawnDelay = number(d.spawnDelay, 0, 60, 3),
+        cinematic = d.cinematic == true or nil,
+        warning = text(d.warning, 160), arrival = text(d.arrival, 160),
+    }
+end
+
+-- ------------------------------------------------------------------- presets
+
+local presets = { boss = {}, squad = {}, av = {} } -- kind -> id -> def
+local status = {}                                  -- record -> "tested" | "broken"
+local shipped = {}
+for _, record in ipairs(GM.testedModels) do shipped[record] = "tested" end
+
+local function load()
+    local rows, why = Open77.kvp.find("preset:", 500)
+    if not rows then return print("[gm] presets not loaded: " .. tostring(why)) end
+    for _, row in ipairs(rows) do
+        local kind, id = row.key:match("^preset:(%l+):([%w_%-]+)$")
+        local ok, value = pcall(json.decode, row.value)
+        local def = ok and kind and clean[kind] and type(value) == "table" and clean[kind](value) or nil
+        if def then presets[kind][id] = def else print("[gm] skipped a bad preset: " .. tostring(row.key)) end
+    end
+    local marksRows = Open77.kvp.find("model:", 500) or {}
+    for _, row in ipairs(marksRows) do
+        local record = character(row.key:sub(7))
+        if record and (row.value == "tested" or row.value == "broken") then status[record] = row.value end
+    end
+end
+
+local function count(t)
+    local n = 0
+    for _ in pairs(t) do n = n + 1 end
+    return n
+end
+
+local function listOf(kind)
+    local list = {}
+    if kind == "boss" then
+        for id, b in pairs(GM.bosses) do
+            list[#list + 1] = {
+                id = "builtin:" .. id, builtin = true, name = b.name, record = b.record,
+                health = b.health, height = b.height or 2.4, scaling = true,
+            }
+        end
+    end
+    if kind == "av" then
+        list[#list + 1] = {
+            id = "builtin:default", builtin = true, name = "Standard crash", record = GM.av.record,
+            distance = GM.av.distance, height = GM.av.height, flightSeconds = GM.av.flightSeconds, direction = 0,
+            blastRadius = GM.av.blastRadius, blastDamage = GM.av.blastDamage, fireSeconds = GM.av.fireSeconds,
+        }
+    end
+    if kind == "squad" then
+        list[#list + 1] = {
+            id = "builtin:default", builtin = true, name = "Maelstrom four", pattern = "ring", radius = 6,
+            units = { { record = GM.minion, count = 4 } },
+        }
+    end
+    for id, def in pairs(presets[kind]) do
+        local row = { id = id }
+        for k, v in pairs(def) do row[k] = v end
+        list[#list + 1] = row
+    end
+    table.sort(list, function(a, b)
+        if a.name ~= b.name then return a.name < b.name end
+        return a.id < b.id
+    end)
+    return list
+end
+
+local sequence = 0
+local function send(playerId, event, value)
+    local ok, encoded, why = pcall(json.encode, value)
+    if not ok or type(encoded) ~= "string" then
+        return print("[gm] panel encode failed: " .. tostring(ok and why or encoded))
+    end
+    -- One event string may hold 16 KiB: cut into parts, never inside a UTF-8 character.
+    sequence = sequence + 1
+    local cuts, at = {}, 1
+    while at <= #encoded do
+        local last = math.min(at + 11999, #encoded)
+        while last < #encoded and (encoded:byte(last + 1) & 0xC0) == 0x80 do last = last - 1 end
+        cuts[#cuts + 1] = encoded:sub(at, last)
+        at = last + 1
+    end
+    for i, part in ipairs(cuts) do
+        TriggerClientEvent(event, playerId, part, i, #cuts, sequence)
+    end
+end
+
+local function sendState(playerId)
+    local scenes = {}
+    for id in pairs(GM.scenes) do scenes[#scenes + 1] = id end
+    table.sort(scenes)
+    -- One message per part: the page merges them.
+    send(playerId, "gm_events:panel:state", {
+        part = "base", scenes = scenes, avModels = GM.avModels,
+        maxSquad = GM.maxSquad, canEdit = allowed(playerId, EDIT),
+        chimera = GetResourceState("open77_chimera") == "running",
+    })
+    local merged = {}
+    for record, value in pairs(shipped) do merged[record] = value end
+    for record, value in pairs(status) do merged[record] = value end
+    send(playerId, "gm_events:panel:state", { part = "status", status = merged })
+    if allowed(playerId, EDIT) then
+        local values = {}
+        for key in pairs(GM.announceKeys) do values[key] = GM[key] end
+        send(playerId, "gm_events:panel:state", { part = "announce", announce = values })
+    end
+    for _, kind in ipairs({ "boss", "squad", "av" }) do
+        send(playerId, "gm_events:panel:state", { part = kind, [kind] = listOf(kind) })
+    end
+end
+
+local function sendLive(playerId)
+    local bosses, hostiles = {}, 0
+    for _, n in pairs(GM.living()) do
+        local npc = GM.readNpc(n)
+        if npc and npc.health > 0 then
+            if n.boss then
+                if #bosses < 12 then
+                    bosses[#bosses + 1] = {
+                        name = n.name, players = n.players or 1,
+                        extra = npc.repairing and "repairing" or npc.phase or "",
+                        percent = math.max(1, math.ceil(npc.health / npc.maxHealth * 100)),
+                    }
+                end
+            else
+                hostiles = hostiles + 1
+            end
+        end
+    end
+    local players = {}
+    for _, id in ipairs(Open77.players.all()) do
+        if #players < 64 then players[#players + 1] = { id = id, name = Open77.players.name(id) or ("Player " .. id) } end
+    end
+    send(playerId, "gm_events:panel:live", {
+        bosses = bosses, hostiles = hostiles, players = players,
+        ghost = core.isGhost(playerId), mark = core.mark(playerId) ~= nil,
+    })
+end
+
+local function open(playerId)
+    viewers[playerId] = true
+    TriggerClientEvent("gm_events:panel:open", playerId)
+    sendState(playerId)
+    sendLive(playerId)
+end
+
+-- -------------------------------------------------------------------- target
+
+local function target(playerId, data, distance)
+    if data.target == "mark" then
+        local mark = core.mark(playerId)
+        local me, why = core.freshPlayer(playerId)
+        if not me then return nil, why end
+        if not mark or mark.bucket ~= (me.bucket or 0) then return nil, "no mark set here" end
+        return mark
+    end
+    local id = math.tointeger(tonumber(data.target))
+    if id and id > 0 then
+        local online = false
+        for _, other in ipairs(Open77.players.all()) do online = online or other == id end
+        if not online then return nil, "that player has left" end
+        local anchor, why = core.anchorFor(id, 12, true)
+        if not anchor then return nil, "that player: " .. tostring(why) end
+        anchor.source = playerId -- reports go to the staff member
+        return anchor
+    end
+    return core.anchorFor(playerId, distance, true)
+end
+
+-- ------------------------------------------------------------------- actions
+
+-- op -> the typed command whose right it needs
+local spawnRight = { boss = "command.gm.boss", squad = "command.gm.wave", av = "command.gm.av" }
+local function spawnDistance(kind)
+    return kind == "boss" and GM.npcDistance or kind == "squad" and GM.npcDistance + 6 or GM.eventDistance
+end
+
+local function find(kind, id)
+    for _, def in ipairs(listOf(kind)) do
+        if def.id == id then return def end
+    end
+end
+
+-- Turn a crash's references into what to spawn. The same rights apply as for
+-- spawning those things on their own.
+local function attach(playerId, def)
+    if def.squadId then
+        if not allowed(playerId, spawnRight.squad) then return nil, "you need " .. spawnRight.squad end
+        local found = find("squad", def.squadId)
+        local squad, bad = nil, "the attached squad no longer exists"
+        if found then squad, bad = clean.squad(found) end
+        if not squad then return nil, bad end
+        def.squadDef = squad
+    end
+    if def.bossId == "chimera" then
+        if not allowed(playerId, "command.gm.chimera") then return nil, "you need command.gm.chimera" end
+        if GetResourceState("open77_chimera") ~= "running" then return nil, "open77_chimera is not running" end
+        def.withChimera = true
+    elseif def.bossId then
+        if not allowed(playerId, spawnRight.boss) then return nil, "you need " .. spawnRight.boss end
+        local found = find("boss", def.bossId)
+        local boss, bad = nil, "the attached boss no longer exists"
+        if found then boss, bad = clean.boss(found) end
+        if not boss then return nil, bad end
+        def.bossDef = boss
+    end
+    return true
+end
+
+local ops = {}
+
+-- Spawn a saved preset, or an unsaved draft from the editor.
+function ops.spawn(playerId, d)
+    local right = spawnRight[d.kind]
+    if not right then return false, "unknown kind" end
+    if not allowed(playerId, right) then return false, "you need " .. right end
+    local source = d.draft
+    if source ~= nil then
+        -- A draft is arbitrary content, so it needs the editor right too.
+        if not allowed(playerId, EDIT) then return false, "you need " .. EDIT end
+        if type(source) ~= "table" then return false, "bad draft" end
+    else
+        source = find(d.kind, d.id)
+        if not source then return false, "that preset no longer exists" end
+    end
+    local def, bad = clean[d.kind](source)
+    if not def then return false, bad end
+    if d.kind == "av" then
+        local attached, missing = attach(playerId, def)
+        if not attached then return false, missing end
+    end
+    local anchor, why = target(playerId, d, spawnDistance(d.kind))
+    if not anchor then return false, why end
+    local ok, reason = core.actions[d.kind](anchor, { def = def })
+    return ok, reason or (def.name .. " started")
+end
+
+function ops.save(playerId, d)
+    if not allowed(playerId, EDIT) then return false, "you need " .. EDIT end
+    if not clean[d.kind] or type(d.def) ~= "table" then return false, "bad preset" end
+    local def, bad = clean[d.kind](d.def)
+    if not def then return false, bad end
+    local id = type(d.id) == "string" and presets[d.kind][d.id] and d.id or nil
+    if not id then
+        if count(presets[d.kind]) >= MAX_PRESETS then return false, "preset limit reached (" .. MAX_PRESETS .. ")" end
+        local n = 1
+        while presets[d.kind]["p" .. n] do n = n + 1 end
+        id = "p" .. n
+    end
+    local encoded, bad2 = json.encode(def)
+    if type(encoded) ~= "string" then return false, "not saved: " .. tostring(bad2) end
+    local ok, why = Open77.kvp.set("preset:" .. d.kind .. ":" .. id, encoded)
+    if not ok then return false, "not saved: " .. tostring(why) end
+    presets[d.kind][id] = def
+    print(("[gm] player %d saved %s preset '%s'"):format(playerId, d.kind, def.name))
+    return true, def.name .. " saved", true
+end
+
+function ops.delete(playerId, d)
+    if not allowed(playerId, EDIT) then return false, "you need " .. EDIT end
+    local def = clean[d.kind] and type(d.id) == "string" and presets[d.kind][d.id] or nil
+    if not def then return false, "only saved presets can be deleted" end
+    local ok, why = Open77.kvp.delete("preset:" .. d.kind .. ":" .. d.id)
+    if not ok then return false, "not deleted: " .. tostring(why) end
+    presets[d.kind][d.id] = nil
+    print(("[gm] player %d deleted %s preset '%s'"):format(playerId, d.kind, def.name))
+    return true, def.name .. " deleted", true
+end
+
+-- key -> longest text; the host checks type and choices as well
+GM.announceKeys = {
+    announceMethod = 20, announceResource = 64, announceExport = 64, announceTitle = 40, announceSeconds = 0,
+    msgBossAppeared = 200, msgBossHealth = 200, msgBossDefeated = 200,
+    msgCrashWarning = 200, msgCrashSurvivors = 200, msgBossfightIntro = 200,
+    msgChimeraGas = 200, msgChimeraCore = 200,
+}
+
+function ops.announceSave(playerId, d)
+    if not allowed(playerId, EDIT) then return false, "you need " .. EDIT end
+    if type(d.values) ~= "table" then return false, "bad settings" end
+    local changes = {}
+    for key, longest in pairs(GM.announceKeys) do
+        local value = d.values[key]
+        if value ~= nil then
+            if longest == 0 then
+                value = math.floor(number(value, 2, 60, 8))
+            elseif value == "" then
+                value = "-" -- an emptied box turns the message off
+            else
+                value = text(value, longest)
+                if not value then return false, key .. ": 1 to " .. longest .. " characters" end
+            end
+            if (key == "announceResource" or key == "announceExport") and not value:match("^[%w_%-]+$") then
+                return false, key .. ": letters, numbers, _ and - only"
+            end
+            if value ~= GM[key] then changes[#changes + 1] = { key, value } end
+        end
+    end
+    for _, change in ipairs(changes) do
+        local ok, why = Open77.tunables.set(change[1], change[2])
+        if not ok then return false, change[1] .. " not saved: " .. tostring(why), true end
+    end
+    if #changes > 0 then print(("[gm] player %d changed %d announcement settings"):format(playerId, #changes)) end
+    return true, #changes == 0 and "nothing changed" or "announcements saved", #changes > 0
+end
+
+-- Everyone sees a test: it must travel the real path to prove anything.
+function ops.announceTest(playerId)
+    if not allowed(playerId, EDIT) then return false, "you need " .. EDIT end
+    local ok, why = GM.say("test", GM.msgBossAppeared == "-" and "Test announcement" or GM.msgBossAppeared,
+        { boss = "Test boss", players = 1, percent = 50 })
+    return ok, why or ("sent by " .. GM.announceMethod)
+end
+
+local phases = { armored = true, exposed = true, gas = true, core = true, endrepair = true }
+
+function ops.chimera(playerId, d)
+    local right = "command.gm.chimera"
+    if not allowed(playerId, right) then return false, "you need " .. right end
+    if d.phase ~= nil then
+        if not phases[d.phase] then return false, "unknown phase" end
+        return core.actions.chimeraPhase(nil, { phase = d.phase })
+    end
+    if type(d.def) ~= "table" then return false, "bad settings" end
+    local name = text(d.def.name, 32)
+    if not name then return false, "boss name: 1 to 32 characters" end
+    local anchor, why = target(playerId, d, GM.chimera.distance)
+    if not anchor then return false, why end
+    return core.actions.chimera(anchor, { def = {
+        name = name, health = number(d.def.health, 0.1, 100, 2), damage = number(d.def.damage, 0, 5, 0.8),
+        scaling = d.def.scaling ~= false,
+    } })
+end
+
+-- Shared verdict on a model, for every staff member.
+function ops.status(playerId, d)
+    if not allowed(playerId, EDIT) then return false, "you need " .. EDIT end
+    local record = character(d.record)
+    if not record then return false, "bad model" end
+    local ok, why
+    if d.value == "tested" or d.value == "broken" then
+        if not status[record] and count(status) >= MAX_STATUS then return false, "too many model notes" end
+        ok, why = Open77.kvp.set("model:" .. record, d.value)
+        if ok then status[record] = d.value end
+    else
+        ok, why = true, nil
+        if status[record] then ok, why = Open77.kvp.delete("model:" .. record) end
+        if ok then status[record] = nil end
+    end
+    if not ok then return false, "not saved: " .. tostring(why) end
+    return true, "model note updated", true
+end
+
+-- Buttons that are exactly a typed command.
+local buttons = {
+    ["gm.boom"] = true, ["gm.fire"] = true, ["gm.cinematic"] = true, ["gm.scene"] = true, ["gm.stop"] = true,
+    ["gm.killboss"] = true, ["gm.bring"] = true, ["gm.ghost"] = true, ["gm.mark"] = true, ["gm.unmark"] = true,
+    ["gm.announce"] = true, ["gm.clean"] = true,
+}
+local placedButtons = { ["gm.boom"] = true, ["gm.fire"] = true, ["gm.cinematic"] = true, ["gm.scene"] = true }
+
+function ops.command(playerId, d)
+    if not buttons[d.name] then return false, "unknown button" end
+    local right = "command." .. d.name
+    if not allowed(playerId, right) then return false, "you need " .. right end
+    local args = {}
+    if d.name == "gm.announce" then
+        args[1] = text(d.arg, 160)
+        if not args[1] then return false, "announcement: 1 to 160 characters" end
+    elseif d.arg ~= nil then
+        args[1] = tostring(d.arg):sub(1, 64)
+    end
+    args.n = #args
+    local anchor
+    if placedButtons[d.name] then
+        local why
+        anchor, why = target(playerId, d, GM.eventDistance)
+        if not anchor then return false, why end
+    end
+    local ok, reason = core.withAnchor(anchor, core.handlers[d.name], playerId, args)
+    return ok, reason or (ok and "done" or "failed")
+end
+
+-- ------------------------------------------------------------------- network
+
+RegisterCommand("gm.panel", function(playerId)
+    if playerId and playerId > 0 then open(playerId) end
+end, true)
+
+RegisterNetEvent("gm_events:panel:request", function()
+    local playerId = tonumber(source)
+    if not playerId or playerId <= 0 then return end
+    local now = GetGameTimer()
+    if now - (lastCall[playerId] or -1000) < 250 then return end
+    lastCall[playerId] = now
+    -- Silent for everyone else: the key does nothing without the right.
+    if allowed(playerId, "command.gm.panel") then open(playerId) end
+end)
+
+RegisterNetEvent("gm_events:panel:closed", function()
+    local playerId = tonumber(source)
+    if playerId then viewers[playerId] = nil end
+end)
+
+RegisterNetEvent("gm_events:panel:call", function(encoded)
+    local playerId = tonumber(source)
+    if not playerId or playerId <= 0 then return end
+    if type(encoded) ~= "string" or #encoded > 8192 then return end
+    local now = GetGameTimer()
+    if now - (lastCall[playerId] or -1000) < 150 then return end
+    lastCall[playerId] = now
+    if not allowed(playerId, "command.gm.panel") then return end
+
+    local decoded, d = pcall(json.decode, encoded)
+    local op = decoded and type(d) == "table" and type(d.op) == "string" and ops[d.op] or nil
+    if not op then return end
+    local ok, a, b, changed = pcall(op, playerId, d)
+    if not ok then
+        print("[gm] panel error: " .. tostring(a))
+        a, b, changed = false, "internal error, see the server console", false
+    end
+    print(("[gm] panel player=%d op=%s ok=%s %s"):format(playerId, d.op, tostring(a == true), tostring(b or "")))
+    send(playerId, "gm_events:panel:result", { ok = a == true, text = tostring(b or ""), id = tostring(d.req or "") })
+    if changed then
+        for viewer in pairs(viewers) do sendState(viewer) end
+    end
+    sendLive(playerId)
+end)
+
+AddEventHandler("onPlayerDisconnected", function(id)
+    local playerId = tonumber(id)
+    if playerId then viewers[playerId], lastCall[playerId] = nil, nil end
+end)
+
+CreateThread(function()
+    while true do
+        Wait(1000)
+        for playerId in pairs(viewers) do
+            if allowed(playerId, "command.gm.panel") then sendLive(playerId) else viewers[playerId] = nil end
+        end
+    end
+end)
+
+load()
+print(("gm_events panel ready: %d boss, %d squad, %d AV presets"):format(
+    count(presets.boss), count(presets.squad), count(presets.av)))

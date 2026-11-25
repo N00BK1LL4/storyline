@@ -1,0 +1,19 @@
+<rml>
+<head>
+    <title>GM boss bar</title>
+    <link type="text/rcss" href="nui://open77/open77.rcss"/>
+    <link type="text/rcss" href="boss.rcss"/>
+</head>
+<body data-model="boss">
+<div id="root" data-class-on="active" data-class-low="low">
+    <div id="panel">
+        <div id="row">
+            <span id="name">{{name}}</span>
+            <span id="percent">{{percent}}%</span>
+        </div>
+        <div id="track"><div id="fill" data-style-width="percent + '%'"></div></div>
+        <span id="note">{{note}}</span>
+    </div>
+</div>
+</body>
+</rml>
